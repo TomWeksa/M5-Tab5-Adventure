@@ -8,6 +8,7 @@ namespace {
 enum class Screen : uint8_t {
     Field,
     Inventory,
+    Map,
 };
 
 enum class Slot : uint8_t {
@@ -25,6 +26,8 @@ enum class UiAction : uint8_t {
     Scavenge,
     Sneak,
     Inventory,
+    Map,
+    SelectSite,
     BackToField,
     EquipOrUse,
     Travel,
@@ -53,6 +56,20 @@ struct Site {
     uint8_t risk;
     uint8_t maxCache;
     uint16_t color;
+};
+
+struct MapPin {
+    uint8_t site;
+    uint16_t xPermille;
+    uint16_t yPermille;
+    const char* callSign;
+    const char* whisper;
+};
+
+struct RouteEdge {
+    uint8_t from;
+    uint8_t to;
+    const char* name;
 };
 
 struct Stats {
@@ -96,6 +113,7 @@ int16_t exposure = 0;
 int16_t scrap = 8;
 uint16_t day = 1;
 uint8_t currentSite = 0;
+uint8_t selectedMapSite = 1;
 uint8_t timeTick = 0;
 uint8_t siteHeat[kSiteCapacity];
 uint8_t siteCache[kSiteCapacity];
@@ -138,9 +156,30 @@ Site sites[] = {
     {"Black Reed Verge", "outer exclusion", "A reed sea grown through asphalt. Every shadow looks freshly made.", 6, 3, 0},
 };
 
+MapPin mapPins[] = {
+    {0, 150, 700, "CLINIC", "Blue ward light. The map stabilizes here and nowhere else."},
+    {1, 320, 510, "SPILL", "Ad ghosts stutter: BUY CLEAN WATER / BUY CLEAN SKIN."},
+    {2, 510, 670, "MALL", "Retail hymns leak from drowned escalators after dusk."},
+    {3, 660, 360, "RELAY", "Antenna shadows point against the wind."},
+    {4, 850, 190, "VERGE", "The reedline redraws itself between blinks."},
+};
+
+RouteEdge routeEdges[] = {
+    {0, 1, "drain road"},
+    {0, 2, "service tunnel"},
+    {1, 2, "flood arcade"},
+    {1, 3, "signage spine"},
+    {2, 3, "maintenance tram"},
+    {2, 4, "reed culvert"},
+    {3, 4, "antenna ridge"},
+};
+
 constexpr uint8_t kItemCount = sizeof(itemCatalog) / sizeof(itemCatalog[0]);
 constexpr uint8_t kSiteCount = sizeof(sites) / sizeof(sites[0]);
+constexpr uint8_t kMapPinCount = sizeof(mapPins) / sizeof(mapPins[0]);
+constexpr uint8_t kRouteEdgeCount = sizeof(routeEdges) / sizeof(routeEdges[0]);
 static_assert(kSiteCount <= kSiteCapacity, "site state arrays need more capacity");
+static_assert(kMapPinCount == kSiteCount, "map pins must match sites");
 
 int clampInt(int value, int low, int high) {
     if (value < low) {
@@ -365,6 +404,43 @@ bool fieldActionAvailable(UiAction action) {
         return siteCache[currentSite] > 0;
     }
     return true;
+}
+
+bool directRoute(uint8_t a, uint8_t b) {
+    if (a == b) {
+        return true;
+    }
+
+    for (uint8_t i = 0; i < kRouteEdgeCount; ++i) {
+        if ((routeEdges[i].from == a && routeEdges[i].to == b) || (routeEdges[i].from == b && routeEdges[i].to == a)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+uint8_t travelTicksToSite(uint8_t targetSite) {
+    if (targetSite >= kSiteCount || targetSite == currentSite) {
+        return 0;
+    }
+    return directRoute(currentSite, targetSite) ? 1 : 2;
+}
+
+int16_t routeExposureCost(uint8_t targetSite, const Stats& stats) {
+    if (targetSite >= kSiteCount || targetSite == currentSite) {
+        return 0;
+    }
+    if (targetSite == 0) {
+        return currentSite == 0 ? 0 : 1;
+    }
+
+    const int16_t routeLoad = travelTicksToSite(targetSite) + siteHeat[targetSite] / 2;
+    return clampInt((sites[targetSite].risk + routeLoad + stats.strain - stats.filter) / 4, 0, 4);
+}
+
+bool canTravelToSite(uint8_t targetSite) {
+    const uint8_t ticks = travelTicksToSite(targetSite);
+    return targetSite < kSiteCount && targetSite != currentSite && ticks > 0 && timeRemainingTicks() >= ticks;
 }
 
 void setStatus(const char* text) {
@@ -868,24 +944,39 @@ void resolveFieldAction(UiAction action) {
     checkCollapse();
 }
 
-void travel() {
+void travelToSite(uint8_t targetSite) {
     const Stats stats = deriveStats();
-    if (timeRemainingTicks() < actionTimeCost(UiAction::Travel)) {
-        setStatus("There is not enough daylight left for another route. Rest or retreat before curfew decides.");
+    if (targetSite >= kSiteCount) {
+        return;
+    }
+    if (targetSite == currentSite) {
+        currentScreen = Screen::Field;
+        screenDirty = true;
         return;
     }
 
-    currentSite = static_cast<uint8_t>((currentSite + 1) % kSiteCount);
+    const uint8_t travelTicks = travelTicksToSite(targetSite);
+    if (timeRemainingTicks() < travelTicks) {
+        setStatus("The map refuses the route. Not enough daylight remains before curfew teeth close.");
+        return;
+    }
+
+    const int16_t routeDose = routeExposureCost(targetSite, stats);
+    currentSite = targetSite;
+    selectedMapSite = targetSite;
     if (currentSite != 0) {
-        exposure = clampInt(exposure + clampInt(sites[currentSite].risk - stats.filter, 0, 2), 0, kMaxExposure);
+        exposure = clampInt(exposure + routeDose, 0, kMaxExposure);
+    } else {
+        exposure = clampInt(exposure + routeDose, 0, kMaxExposure);
     }
 
     char message[160];
-    snprintf(message, sizeof(message), "You spend %uh on service roads to %s. Cache %u, heat %u, risk now %d.",
-             static_cast<unsigned>(actionTimeCost(UiAction::Travel) * kTickHours), sites[currentSite].name,
-             siteCache[currentSite], siteHeat[currentSite], effectiveRiskForSite(currentSite));
+    snprintf(message, sizeof(message), "You trust the signal map and ride %uh to %s. Route dose +%d. Risk now %d.",
+             static_cast<unsigned>(travelTicks * kTickHours), sites[currentSite].name, routeDose,
+             effectiveRiskForSite(currentSite));
     setStatus(message);
-    spendTime(actionTimeCost(UiAction::Travel));
+    currentScreen = Screen::Field;
+    spendTime(travelTicks);
     checkCollapse();
 }
 
@@ -918,6 +1009,17 @@ void handleAction(UiAction action, int16_t param) {
             currentScreen = Screen::Inventory;
             screenDirty = true;
             break;
+        case UiAction::Map:
+            selectedMapSite = currentSite == 0 ? 1 : currentSite;
+            currentScreen = Screen::Map;
+            screenDirty = true;
+            break;
+        case UiAction::SelectSite:
+            if (param >= 0 && param < static_cast<int16_t>(kSiteCount)) {
+                selectedMapSite = static_cast<uint8_t>(param);
+                screenDirty = true;
+            }
+            break;
         case UiAction::BackToField:
             currentScreen = Screen::Field;
             screenDirty = true;
@@ -926,7 +1028,7 @@ void handleAction(UiAction action, int16_t param) {
             equipInventorySlot(static_cast<uint8_t>(param));
             break;
         case UiAction::Travel:
-            travel();
+            travelToSite(static_cast<uint8_t>(param));
             break;
         case UiAction::Rest:
             restOrRetreat();
@@ -988,10 +1090,178 @@ void drawFieldScreen() {
     addButton("Sneak 2h", gap * 3 + buttonW * 2, buttonY + 8, buttonW, 52, UiAction::Sneak, 0, rgb(220, 90, 190),
               fieldActionAvailable(UiAction::Sneak));
     addButton("Kit", gap * 4 + buttonW * 3, buttonY + 8, buttonW, 52, UiAction::Inventory, 0, rgb(170, 120, 240));
-    addButton("Travel 2h", gap * 5 + buttonW * 4, buttonY + 8, buttonW, 52, UiAction::Travel, 0, rgb(120, 220, 120),
-              timeRemainingTicks() >= actionTimeCost(UiAction::Travel));
+    addButton("Map", gap * 5 + buttonW * 4, buttonY + 8, buttonW, 52, UiAction::Map, 0, rgb(120, 220, 120));
     addButton(currentSite == 0 ? "Rest" : "Retreat", gap * 6 + buttonW * 5, buttonY + 8, buttonW, 52, UiAction::Rest,
               0, rgb(230, 90, 95));
+
+    for (uint8_t i = 0; i < buttonCount; ++i) {
+        drawButton(buttons[i]);
+    }
+}
+
+int32_t mapPinX(const MapPin& pin, int32_t x, int32_t w) {
+    return x + 26 + static_cast<int32_t>(pin.xPermille) * (w - 52) / 1000;
+}
+
+int32_t mapPinY(const MapPin& pin, int32_t y, int32_t h) {
+    return y + 26 + static_cast<int32_t>(pin.yPermille) * (h - 52) / 1000;
+}
+
+void drawMapBackground(int32_t x, int32_t y, int32_t w, int32_t h) {
+    auto& display = M5.Display;
+    const uint16_t bg = rgb(4, 8, 11);
+
+    drawPanel(x, y, w, h, rgb(46, 120, 110));
+    for (int32_t gx = x + 32; gx < x + w - 24; gx += 58) {
+        display.drawFastVLine(gx, y + 18, h - 36, rgb(13, 28, 32));
+    }
+    for (int32_t gy = y + 30; gy < y + h - 20; gy += 46) {
+        display.drawFastHLine(x + 18, gy, w - 36, rgb(12, 25, 30));
+    }
+
+    for (uint8_t i = 0; i < 42; ++i) {
+        const uint32_t seed = static_cast<uint32_t>(i) * 1103515245UL + static_cast<uint32_t>(day) * 977UL;
+        const int32_t px = x + 18 + static_cast<int32_t>(seed % static_cast<uint32_t>(w - 36));
+        const int32_t py = y + 18 + static_cast<int32_t>((seed / 97U) % static_cast<uint32_t>(h - 36));
+        display.drawPixel(px, py, rgb(30, 70, 72));
+        if ((i % 9) == 0) {
+            display.drawFastHLine(px - 5, py, 11, rgb(40, 90, 82));
+        }
+    }
+
+    display.setFont(&fonts::Font2);
+    display.setTextColor(rgb(45, 90, 88), bg);
+    display.drawString("CITY SURVEY REFUSED / SIGNAL MAP RECONSTRUCTED FROM BAD DATA", x + 24, y + h - 30);
+    display.drawString("red routes mean attention, green routes mean lies", x + 24, y + 16);
+}
+
+void drawMapRoutes(int32_t x, int32_t y, int32_t w, int32_t h) {
+    auto& display = M5.Display;
+    for (uint8_t i = 0; i < kRouteEdgeCount; ++i) {
+        const MapPin& a = mapPins[routeEdges[i].from];
+        const MapPin& b = mapPins[routeEdges[i].to];
+        const int32_t ax = mapPinX(a, x, w);
+        const int32_t ay = mapPinY(a, y, h);
+        const int32_t bx = mapPinX(b, x, w);
+        const int32_t by = mapPinY(b, y, h);
+        const bool active = routeEdges[i].from == currentSite || routeEdges[i].to == currentSite;
+        const bool selected = routeEdges[i].from == selectedMapSite || routeEdges[i].to == selectedMapSite;
+        const uint16_t color = active ? rgb(110, 230, 180) : (selected ? rgb(180, 120, 230) : rgb(45, 72, 78));
+
+        display.drawLine(ax, ay, bx, by, color);
+        if (active || selected) {
+            display.drawLine(ax + 1, ay, bx + 1, by, color);
+        }
+    }
+}
+
+void drawMapPins(int32_t x, int32_t y, int32_t w, int32_t h) {
+    auto& display = M5.Display;
+    const uint16_t bg = rgb(4, 8, 11);
+
+    for (uint8_t i = 0; i < kMapPinCount; ++i) {
+        const MapPin& pin = mapPins[i];
+        const Site& site = sites[pin.site];
+        const int32_t px = mapPinX(pin, x, w);
+        const int32_t py = mapPinY(pin, y, h);
+        const bool here = pin.site == currentSite;
+        const bool selected = pin.site == selectedMapSite;
+        const int32_t r = here ? 18 : 14;
+
+        if (siteHeat[pin.site] > 0) {
+            display.drawCircle(px, py, r + 8 + siteHeat[pin.site] * 2, rgb(120, 45, 58));
+        }
+        if (siteIntel[pin.site] > 0) {
+            display.drawCircle(px, py, r + 6, rgb(80, 180, 170));
+        }
+
+        display.fillCircle(px, py, r, site.color);
+        display.drawCircle(px, py, r + 3, selected ? TFT_WHITE : rgb(130, 150, 145));
+        if (here) {
+            display.drawCircle(px, py, r + 10, rgb(110, 230, 180));
+            display.drawCircle(px, py, r + 15, rgb(45, 95, 88));
+        }
+
+        display.setFont(&fonts::Font2);
+        display.setTextColor(selected ? TFT_WHITE : rgb(180, 198, 190), bg);
+        display.drawString(pin.callSign, px + 20, py - 9);
+        addButton("", px - 46, py - 40, 120, 78, UiAction::SelectSite, pin.site, site.color, true, false);
+    }
+}
+
+void drawMapDetailPanel(int32_t x, int32_t y, int32_t w, int32_t h) {
+    auto& display = M5.Display;
+    const uint16_t bg = rgb(8, 12, 17);
+    const uint8_t siteIndex = selectedMapSite < kSiteCount ? selectedMapSite : currentSite;
+    const Site& site = sites[siteIndex];
+    const MapPin& pin = mapPins[siteIndex];
+    const Stats stats = deriveStats();
+    const uint8_t ticks = travelTicksToSite(siteIndex);
+    const int16_t routeDose = routeExposureCost(siteIndex, stats);
+    const bool here = siteIndex == currentSite;
+    const bool travelReady = canTravelToSite(siteIndex);
+
+    drawPanel(x, y, w, h, site.color);
+    display.setFont(&fonts::Font4);
+    display.setTextColor(TFT_WHITE, bg);
+    display.drawString(site.name, x + 16, y + 16);
+    display.setFont(&fonts::Font2);
+    display.setTextColor(rgb(160, 180, 178), bg);
+    display.drawString(site.district, x + 18, y + 52);
+
+    display.setTextColor(rgb(125, 230, 205), bg);
+    display.setCursor(x + 18, y + 86);
+    display.printf("risk %d  cache %u/%u  intel %u  heat %u", effectiveRiskForSite(siteIndex), siteCache[siteIndex],
+                   site.maxCache, siteIntel[siteIndex], siteHeat[siteIndex]);
+
+    display.setTextColor(rgb(215, 222, 212), bg);
+    drawWrappedText(pin.whisper, x + 18, y + 122, w - 36, 3, rgb(215, 222, 212), bg);
+    drawWrappedText(site.description, x + 18, y + 198, w - 36, 4, rgb(165, 180, 176), bg);
+
+    display.drawFastHLine(x + 16, y + h - 120, w - 32, rgb(55, 70, 70));
+    display.setTextColor(rgb(200, 210, 205), bg);
+    display.setCursor(x + 18, y + h - 96);
+    if (here) {
+        display.print("You are already inside this signal.");
+    } else {
+        display.printf("route %s  %uh  dose +%d", directRoute(currentSite, siteIndex) ? "direct" : "cross-town",
+                       static_cast<unsigned>(ticks * kTickHours), routeDose);
+    }
+    display.setCursor(x + 18, y + h - 70);
+    display.print(travelReady ? "The route is open." : (here ? "Current location." : "Curfew blocks this route."));
+}
+
+void drawMapScreen() {
+    auto& display = M5.Display;
+    clearButtons();
+    display.fillScreen(rgb(2, 5, 8));
+    drawHeader();
+
+    const int32_t width = display.width();
+    const int32_t height = display.height();
+    const int32_t margin = 18;
+    const int32_t top = 82;
+    const int32_t bottomH = 72;
+    const int32_t detailW = 360;
+    const int32_t mapX0 = margin;
+    const int32_t mapY0 = top;
+    const int32_t mapW = width - detailW - margin * 3;
+    const int32_t mapH = height - top - bottomH - margin;
+    const int32_t detailX = mapX0 + mapW + margin;
+
+    drawMapBackground(mapX0, mapY0, mapW, mapH);
+    drawMapRoutes(mapX0, mapY0, mapW, mapH);
+    drawMapPins(mapX0, mapY0, mapW, mapH);
+    drawMapDetailPanel(detailX, top, detailW, mapH);
+
+    const int32_t buttonY = height - bottomH;
+    char travelLabel[24];
+    const uint8_t ticks = travelTicksToSite(selectedMapSite);
+    snprintf(travelLabel, sizeof(travelLabel), ticks > 0 ? "Travel %uh" : "Travel", static_cast<unsigned>(ticks * kTickHours));
+    addButton("Field", margin, buttonY + 8, 160, 52, UiAction::BackToField, 0, rgb(90, 210, 220));
+    addButton("Kit", margin + 174, buttonY + 8, 150, 52, UiAction::Inventory, 0, rgb(170, 120, 240));
+    addButton(travelLabel, width - margin - 230, buttonY + 8, 230, 52, UiAction::Travel, selectedMapSite,
+              sites[selectedMapSite].color, canTravelToSite(selectedMapSite));
 
     for (uint8_t i = 0; i < buttonCount; ++i) {
         drawButton(buttons[i]);
@@ -1078,10 +1348,16 @@ void drawInventoryScreen() {
 }
 
 void drawCurrentScreen() {
-    if (currentScreen == Screen::Inventory) {
-        drawInventoryScreen();
-    } else {
-        drawFieldScreen();
+    switch (currentScreen) {
+        case Screen::Inventory:
+            drawInventoryScreen();
+            break;
+        case Screen::Map:
+            drawMapScreen();
+            break;
+        case Screen::Field:
+            drawFieldScreen();
+            break;
     }
     screenDirty = false;
 }
