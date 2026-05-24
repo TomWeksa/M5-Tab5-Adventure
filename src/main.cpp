@@ -1272,6 +1272,100 @@ void drawMapRoutes(int32_t x, int32_t y, int32_t w, int32_t h) {
     }
 }
 
+void drawIconBase(int32_t x, int32_t y, uint16_t accent, bool selected) {
+    auto& display = M5.Display;
+    display.fillCircle(x + 3, y + 5, 23, rgb(3, 5, 5));
+    display.fillCircle(x, y, 22, rgb(18, 23, 22));
+    display.fillCircle(x - 4, y - 5, 13, rgb(30, 36, 34));
+    display.drawCircle(x, y, 23, selected ? TFT_WHITE : rgb(86, 100, 94));
+    display.drawCircle(x, y, 19, accent);
+}
+
+void drawClinicIcon(int32_t x, int32_t y) {
+    auto& display = M5.Display;
+    display.fillRoundRect(x - 14, y - 9, 28, 20, 3, rgb(92, 96, 90));
+    display.fillRect(x - 10, y - 13, 20, 6, rgb(125, 130, 120));
+    display.drawRect(x - 14, y - 9, 28, 20, rgb(185, 195, 180));
+    display.fillRect(x - 3, y - 7, 6, 16, rgb(150, 30, 38));
+    display.fillRect(x - 9, y - 1, 18, 6, rgb(150, 30, 38));
+    display.drawFastHLine(x - 12, y + 13, 24, rgb(45, 52, 48));
+    display.fillCircle(x + 13, y - 9, 3, rgb(170, 220, 210));
+}
+
+void drawSpillwayIcon(int32_t x, int32_t y) {
+    auto& display = M5.Display;
+    display.fillRoundRect(x - 17, y - 13, 34, 13, 3, rgb(82, 76, 70));
+    display.drawRect(x - 16, y - 12, 32, 11, rgb(142, 135, 122));
+    display.fillCircle(x - 9, y - 5, 5, rgb(20, 38, 44));
+    display.fillCircle(x + 9, y - 5, 5, rgb(20, 38, 44));
+    drawCurvedTerrainStroke(x - 12, y - 1, x - 3, y + 15, -8, 3, rgb(20, 105, 118), 3, 6);
+    drawCurvedTerrainStroke(x + 8, y - 1, x + 15, y + 16, 7, 2, rgb(32, 130, 140), 3, 6);
+    display.drawFastHLine(x - 18, y - 16, 36, rgb(200, 62, 165));
+    display.drawFastHLine(x - 16, y - 18, 24, rgb(92, 30, 80));
+}
+
+void drawMallIcon(int32_t x, int32_t y) {
+    auto& display = M5.Display;
+    display.fillRoundRect(x - 17, y - 12, 34, 25, 2, rgb(82, 78, 68));
+    display.drawRect(x - 16, y - 11, 32, 23, rgb(150, 142, 116));
+    display.fillRect(x - 10, y - 7, 20, 6, rgb(38, 74, 82));
+    display.fillRect(x - 12, y + 3, 8, 7, rgb(24, 45, 52));
+    display.fillRect(x + 4, y + 3, 8, 7, rgb(24, 45, 52));
+    display.drawFastHLine(x - 20, y + 17, 40, rgb(26, 52, 62));
+    display.drawFastHLine(x - 18, y + 20, 33, rgb(22, 42, 52));
+    display.drawLine(x - 16, y - 16, x + 16, y - 16, rgb(120, 116, 96));
+    display.drawLine(x - 13, y - 16, x - 18, y - 12, rgb(72, 70, 62));
+}
+
+void drawRelayIcon(int32_t x, int32_t y) {
+    auto& display = M5.Display;
+    display.drawLine(x, y - 19, x - 12, y + 15, rgb(156, 148, 118));
+    display.drawLine(x, y - 19, x + 12, y + 15, rgb(156, 148, 118));
+    display.drawLine(x - 12, y + 15, x + 12, y + 15, rgb(110, 100, 82));
+    display.drawLine(x - 8, y + 5, x + 8, y + 5, rgb(116, 108, 90));
+    display.drawLine(x - 5, y - 5, x + 5, y - 5, rgb(116, 108, 90));
+    display.drawLine(x - 18, y + 14, x + 17, y - 12, rgb(42, 44, 38));
+    display.drawCircle(x, y - 20, 5, rgb(230, 180, 75));
+    display.drawCircle(x, y - 20, 10, rgb(118, 88, 44));
+    display.drawFastHLine(x + 10, y + 20, 18, rgb(74, 70, 56));
+}
+
+void drawVergeIcon(int32_t x, int32_t y) {
+    auto& display = M5.Display;
+    display.fillCircle(x, y + 3, 19, rgb(20, 42, 23));
+    for (int8_t i = -4; i <= 4; ++i) {
+        const int32_t baseX = x + i * 4;
+        const int32_t topX = baseX + (i % 2 == 0 ? -5 : 5);
+        const int32_t topY = y - 19 + (i % 3) * 3;
+        display.drawLine(baseX, y + 17, topX, topY, rgb(82, 120, 54));
+        display.drawLine(baseX + 1, y + 17, topX + 1, topY, rgb(28, 48, 24));
+    }
+    display.drawLine(x - 18, y + 10, x + 18, y - 10, rgb(68, 65, 52));
+    display.drawLine(x - 12, y + 17, x + 21, y + 2, rgb(45, 43, 35));
+    display.fillCircle(x + 7, y - 4, 5, rgb(12, 18, 14));
+}
+
+void drawDestinationIcon(uint8_t siteIndex, int32_t x, int32_t y, bool selected) {
+    drawIconBase(x, y, sites[siteIndex].color, selected);
+    switch (siteIndex) {
+        case 0:
+            drawClinicIcon(x, y);
+            break;
+        case 1:
+            drawSpillwayIcon(x, y);
+            break;
+        case 2:
+            drawMallIcon(x, y);
+            break;
+        case 3:
+            drawRelayIcon(x, y);
+            break;
+        case 4:
+            drawVergeIcon(x, y);
+            break;
+    }
+}
+
 void drawMapPins(int32_t x, int32_t y, int32_t w, int32_t h) {
     auto& display = M5.Display;
     const uint16_t bg = rgb(4, 8, 11);
@@ -1283,26 +1377,24 @@ void drawMapPins(int32_t x, int32_t y, int32_t w, int32_t h) {
         const int32_t py = mapPinY(pin, y, h);
         const bool here = pin.site == currentSite;
         const bool selected = pin.site == selectedMapSite;
-        const int32_t r = here ? 18 : 14;
 
         if (siteHeat[pin.site] > 0) {
-            display.drawCircle(px, py, r + 8 + siteHeat[pin.site] * 2, rgb(120, 45, 58));
+            display.drawCircle(px, py, 29 + siteHeat[pin.site] * 2, rgb(120, 45, 58));
         }
         if (siteIntel[pin.site] > 0) {
-            display.drawCircle(px, py, r + 6, rgb(80, 180, 170));
+            display.drawCircle(px, py, 28, rgb(80, 180, 170));
         }
 
-        display.fillCircle(px, py, r, site.color);
-        display.drawCircle(px, py, r + 3, selected ? TFT_WHITE : rgb(130, 150, 145));
+        drawDestinationIcon(pin.site, px, py, selected);
         if (here) {
-            display.drawCircle(px, py, r + 10, rgb(110, 230, 180));
-            display.drawCircle(px, py, r + 15, rgb(45, 95, 88));
+            display.drawCircle(px, py, 33, rgb(110, 230, 180));
+            display.drawCircle(px, py, 38, rgb(45, 95, 88));
         }
 
         display.setFont(&fonts::Font2);
         display.setTextColor(selected ? TFT_WHITE : rgb(180, 198, 190), bg);
-        display.drawString(pin.callSign, px + 20, py - 9);
-        addButton("", px - 46, py - 40, 120, 78, UiAction::SelectSite, pin.site, site.color, true, false);
+        display.drawString(pin.callSign, px + 29, py - 10);
+        addButton("", px - 50, py - 42, 132, 84, UiAction::SelectSite, pin.site, site.color, true, false);
     }
 }
 
