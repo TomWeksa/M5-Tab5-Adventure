@@ -20,11 +20,20 @@ enum class Slot : uint8_t {
     Consumable,
 };
 
+enum class LeadKind : uint8_t {
+    None,
+    Contact,
+    Cache,
+    Anomaly,
+    Door,
+    Trail,
+};
+
 enum class UiAction : uint8_t {
     None,
-    Scout,
-    Scavenge,
-    Sneak,
+    Observe,
+    Explore,
+    FollowLead,
     Inventory,
     Map,
     SelectSite,
@@ -118,6 +127,7 @@ uint8_t timeTick = 0;
 uint8_t siteHeat[kSiteCapacity];
 uint8_t siteCache[kSiteCapacity];
 uint8_t siteIntel[kSiteCapacity];
+LeadKind siteLead[kSiteCapacity];
 int16_t inventory[kInventoryCapacity];
 int16_t equipped[kEquipSlotCount];
 Button buttons[kMaxButtons];
@@ -278,26 +288,137 @@ int16_t effectiveRiskForSite(uint8_t siteIndex) {
 
 uint8_t actionTimeCost(UiAction action) {
     switch (action) {
-        case UiAction::Scout:
-        case UiAction::Sneak:
+        case UiAction::Observe:
+        case UiAction::FollowLead:
         case UiAction::Travel:
         case UiAction::Rest:
             return 1;
-        case UiAction::Scavenge:
+        case UiAction::Explore:
             return 2;
         default:
             return 0;
     }
 }
 
+const char* leadName(LeadKind lead) {
+    switch (lead) {
+        case LeadKind::Contact:
+            return "quiet contact";
+        case LeadKind::Cache:
+            return "buried cache";
+        case LeadKind::Anomaly:
+            return "wrong-light anomaly";
+        case LeadKind::Door:
+            return "sealed service door";
+        case LeadKind::Trail:
+            return "cleaner footpath";
+        case LeadKind::None:
+            return "none";
+    }
+    return "none";
+}
+
+const char* leadVerb(LeadKind lead) {
+    switch (lead) {
+        case LeadKind::Contact:
+            return "Approach";
+        case LeadKind::Cache:
+            return "Recover";
+        case LeadKind::Anomaly:
+            return "Probe";
+        case LeadKind::Door:
+            return "Bypass";
+        case LeadKind::Trail:
+            return "Trace";
+        case LeadKind::None:
+            return "Follow";
+    }
+    return "Follow";
+}
+
+const char* leadCheckText(LeadKind lead) {
+    switch (lead) {
+        case LeadKind::Contact:
+            return "GHOST+TECH";
+        case LeadKind::Cache:
+            return "GRIT+FILTER";
+        case LeadKind::Anomaly:
+            return "SCAN+FILTER";
+        case LeadKind::Door:
+            return "TECH+GRIT";
+        case LeadKind::Trail:
+            return "GHOST+SCAN";
+        case LeadKind::None:
+            return "--";
+    }
+    return "--";
+}
+
+const char* leadWhisper(LeadKind lead) {
+    switch (lead) {
+        case LeadKind::Contact:
+            return "Someone is watching the route without wanting to be seen.";
+        case LeadKind::Cache:
+            return "Fresh scrape marks vanish under dust and runoff.";
+        case LeadKind::Anomaly:
+            return "The light folds wrong near a place your eyes avoid.";
+        case LeadKind::Door:
+            return "A sealed access plate still has power behind it.";
+        case LeadKind::Trail:
+            return "Footprints dodge the hot ground like a practiced prayer.";
+        case LeadKind::None:
+            return "No lead. Observe, or push in blind.";
+    }
+    return "No lead.";
+}
+
+int16_t leadSkill(LeadKind lead, const Stats& stats) {
+    switch (lead) {
+        case LeadKind::Contact:
+            return stats.ghost + stats.tech;
+        case LeadKind::Cache:
+            return stats.grit + stats.filter;
+        case LeadKind::Anomaly:
+            return stats.scan + stats.filter;
+        case LeadKind::Door:
+            return stats.tech + stats.grit;
+        case LeadKind::Trail:
+            return stats.ghost + stats.scan;
+        case LeadKind::None:
+            return 0;
+    }
+    return 0;
+}
+
+LeadKind randomLeadForSite(uint8_t siteIndex) {
+    if (siteIndex == 1) {
+        const LeadKind leads[] = {LeadKind::Contact, LeadKind::Cache, LeadKind::Door, LeadKind::Anomaly};
+        return leads[random(0, sizeof(leads) / sizeof(leads[0]))];
+    }
+    if (siteIndex == 2) {
+        const LeadKind leads[] = {LeadKind::Cache, LeadKind::Door, LeadKind::Contact, LeadKind::Anomaly};
+        return leads[random(0, sizeof(leads) / sizeof(leads[0]))];
+    }
+    if (siteIndex == 3) {
+        const LeadKind leads[] = {LeadKind::Anomaly, LeadKind::Door, LeadKind::Contact, LeadKind::Trail};
+        return leads[random(0, sizeof(leads) / sizeof(leads[0]))];
+    }
+    if (siteIndex == 4) {
+        const LeadKind leads[] = {LeadKind::Anomaly, LeadKind::Trail, LeadKind::Cache, LeadKind::Contact};
+        return leads[random(0, sizeof(leads) / sizeof(leads[0]))];
+    }
+
+    return LeadKind::None;
+}
+
 const char* actionCheckText(UiAction action) {
     switch (action) {
-        case UiAction::Scout:
+        case UiAction::Observe:
             return "SCAN+TECH";
-        case UiAction::Scavenge:
+        case UiAction::Explore:
             return "GRIT+FILTER";
-        case UiAction::Sneak:
-            return "GHOST+SCAN";
+        case UiAction::FollowLead:
+            return leadCheckText(siteLead[currentSite]);
         default:
             return "--";
     }
@@ -305,12 +426,12 @@ const char* actionCheckText(UiAction action) {
 
 const char* actionLabel(UiAction action) {
     switch (action) {
-        case UiAction::Scout:
-            return "Scout";
-        case UiAction::Scavenge:
-            return "Scavenge";
-        case UiAction::Sneak:
-            return "Sneak";
+        case UiAction::Observe:
+            return "Observe";
+        case UiAction::Explore:
+            return "Explore";
+        case UiAction::FollowLead:
+            return leadVerb(siteLead[currentSite]);
         default:
             return "Move";
     }
@@ -318,12 +439,12 @@ const char* actionLabel(UiAction action) {
 
 const char* actionPayoffText(UiAction action) {
     switch (action) {
-        case UiAction::Scout:
-            return "intel";
-        case UiAction::Scavenge:
-            return "salvage";
-        case UiAction::Sneak:
-            return "low heat";
+        case UiAction::Observe:
+            return "lead";
+        case UiAction::Explore:
+            return "encounter";
+        case UiAction::FollowLead:
+            return leadName(siteLead[currentSite]);
         default:
             return "";
     }
@@ -336,10 +457,16 @@ const char* actionBlockedText(UiAction action) {
     if (timeRemainingTicks() < actionTimeCost(action)) {
         return "no light";
     }
-    if (action == UiAction::Scout && siteIntel[currentSite] >= kMaxSiteIntel) {
+    if (action == UiAction::Observe && siteLead[currentSite] != LeadKind::None) {
+        return "lead waits";
+    }
+    if (action == UiAction::Observe && siteIntel[currentSite] >= kMaxSiteIntel) {
         return "mapped";
     }
-    if ((action == UiAction::Scavenge || action == UiAction::Sneak) && siteCache[currentSite] == 0) {
+    if (action == UiAction::FollowLead && siteLead[currentSite] == LeadKind::None) {
+        return "no lead";
+    }
+    if (action == UiAction::Explore && siteCache[currentSite] == 0) {
         return "dry";
     }
     return "";
@@ -347,34 +474,50 @@ const char* actionBlockedText(UiAction action) {
 
 int16_t actionSkill(UiAction action, const Stats& stats) {
     switch (action) {
-        case UiAction::Scout:
+        case UiAction::Observe:
             return stats.scan + stats.tech;
-        case UiAction::Scavenge:
+        case UiAction::Explore:
             return stats.grit + stats.filter;
-        case UiAction::Sneak:
-            return stats.ghost + stats.scan;
+        case UiAction::FollowLead:
+            return leadSkill(siteLead[currentSite], stats);
         default:
             return 0;
     }
 }
 
 int16_t actionTarget(UiAction action) {
-    int16_t target = 5 + effectiveRiskForSite(currentSite);
-    if (action == UiAction::Scavenge) {
+    int16_t target = 4 + effectiveRiskForSite(currentSite);
+    if (action == UiAction::Explore) {
         target += 1;
     }
-    if (action == UiAction::Sneak && siteHeat[currentSite] > 0) {
+    if (action == UiAction::FollowLead) {
+        target += 1;
+        if (siteLead[currentSite] == LeadKind::Anomaly || siteLead[currentSite] == LeadKind::Door) {
+            target += 1;
+        }
+        if (siteLead[currentSite] == LeadKind::Trail) {
+            target -= 1;
+        }
+    }
+    if (action == UiAction::Explore && siteHeat[currentSite] > 0) {
         target += 1;
     }
-    return target;
+    return clampInt(target, 3, 12);
 }
 
 int16_t actionExposureCost(UiAction action, const Stats& stats) {
     int16_t dose = clampInt((effectiveRiskForSite(currentSite) + stats.strain - stats.filter) / 3, 0, 4);
-    if (action == UiAction::Scout) {
+    if (action == UiAction::Observe) {
         dose = clampInt(dose - 1, 0, 4);
-    } else if (action == UiAction::Scavenge) {
+    } else if (action == UiAction::Explore) {
         dose = clampInt(dose + 1, 0, 5);
+    } else if (action == UiAction::FollowLead) {
+        const LeadKind lead = siteLead[currentSite];
+        if (lead == LeadKind::Anomaly) {
+            dose = clampInt(dose + 2, 0, 6);
+        } else if (lead == LeadKind::Trail || lead == LeadKind::Contact) {
+            dose = clampInt(dose - 1, 0, 4);
+        }
     }
     return dose;
 }
@@ -397,11 +540,14 @@ bool fieldActionAvailable(UiAction action) {
     if (timeRemainingTicks() < actionTimeCost(action)) {
         return false;
     }
-    if (action == UiAction::Scout) {
-        return siteIntel[currentSite] < kMaxSiteIntel;
+    if (action == UiAction::Observe) {
+        return siteLead[currentSite] == LeadKind::None && siteIntel[currentSite] < kMaxSiteIntel;
     }
-    if (action == UiAction::Scavenge || action == UiAction::Sneak) {
+    if (action == UiAction::Explore) {
         return siteCache[currentSite] > 0;
+    }
+    if (action == UiAction::FollowLead) {
+        return siteLead[currentSite] != LeadKind::None;
     }
     return true;
 }
@@ -730,22 +876,24 @@ void drawActionForecast(int32_t x, int32_t y, int32_t w, int32_t h) {
     auto& display = M5.Display;
     const uint16_t bg = rgb(8, 12, 17);
     const Stats stats = deriveStats();
-    const UiAction actions[] = {UiAction::Scout, UiAction::Scavenge, UiAction::Sneak};
+    const UiAction actions[] = {UiAction::Observe, UiAction::Explore, UiAction::FollowLead};
 
     drawPanel(x, y, w, h, rgb(190, 70, 150));
     display.setFont(&fonts::Font4);
     display.setTextColor(TFT_WHITE, bg);
-    display.drawString("Move Forecast", x + 14, y + 12);
+    display.drawString("Field Read", x + 14, y + 12);
 
     display.setFont(&fonts::Font2);
     display.setTextColor(rgb(150, 168, 170), bg);
     display.setCursor(x + 16, y + 48);
     display.printf("cache %u/%u  intel %u/%u  heat %u/%u", siteCache[currentSite], sites[currentSite].maxCache,
                    siteIntel[currentSite], kMaxSiteIntel, siteHeat[currentSite], kMaxSiteHeat);
+    display.setCursor(x + 16, y + 66);
+    display.printf("lead: %s", leadName(siteLead[currentSite]));
 
     for (uint8_t i = 0; i < 3; ++i) {
         const UiAction action = actions[i];
-        const int32_t rowY = y + 82 + i * 70;
+        const int32_t rowY = y + 94 + i * 64;
         const bool enabled = fieldActionAvailable(action);
         const uint16_t rowBg = enabled ? rgb(12, 18, 24) : rgb(16, 16, 18);
         const uint16_t border = enabled ? rgb(90, 210, 220) : rgb(58, 58, 62);
@@ -758,12 +906,12 @@ void drawActionForecast(int32_t x, int32_t y, int32_t w, int32_t h) {
         display.setTextColor(enabled ? TFT_WHITE : rgb(110, 115, 120), rowBg);
         display.drawString(actionLabel(action), x + 26, rowY + 8);
         display.setTextColor(enabled ? rgb(180, 210, 205) : rgb(95, 100, 102), rowBg);
-        display.setCursor(x + 126, rowY + 8);
+        display.setCursor(x + 118, rowY + 8);
         display.printf("%s %d/%d", actionCheckText(action), skill, target);
         display.setCursor(x + 26, rowY + 30);
         display.printf("%u%%  %uh  dose +%d", chance, static_cast<unsigned>(actionTimeCost(action) * kTickHours),
                        actionExposureCost(action, stats));
-        display.setCursor(x + 166, rowY + 30);
+        display.setCursor(x + 168, rowY + 30);
         display.print(enabled ? actionPayoffText(action) : actionBlockedText(action));
     }
 }
@@ -776,27 +924,42 @@ uint8_t randomLootForAction(UiAction action) {
         return artifacts[random(0, sizeof(artifacts) / sizeof(artifacts[0]))];
     }
 
-    if (action == UiAction::Scout) {
-        const uint8_t scoutLoot[] = {4, 10, 11, 12};
-        return scoutLoot[random(0, sizeof(scoutLoot) / sizeof(scoutLoot[0]))];
+    if (action == UiAction::Observe) {
+        const uint8_t observeLoot[] = {4, 10, 11, 12};
+        return observeLoot[random(0, sizeof(observeLoot) / sizeof(observeLoot[0]))];
     }
-    if (action == UiAction::Sneak) {
-        const uint8_t sneakLoot[] = {2, 7, 11, 13};
-        return sneakLoot[random(0, sizeof(sneakLoot) / sizeof(sneakLoot[0]))];
+    if (action == UiAction::FollowLead) {
+        const LeadKind lead = siteLead[currentSite];
+        if (lead == LeadKind::Contact || lead == LeadKind::Trail) {
+            const uint8_t quietLoot[] = {2, 7, 11, 13};
+            return quietLoot[random(0, sizeof(quietLoot) / sizeof(quietLoot[0]))];
+        }
+        if (lead == LeadKind::Anomaly) {
+            const uint8_t anomalyLoot[] = {9, 10, 11, 14};
+            return anomalyLoot[random(0, sizeof(anomalyLoot) / sizeof(anomalyLoot[0]))];
+        }
     }
 
-    const uint8_t scavengeLoot[] = {1, 6, 8, 9, 12, 13};
-    return scavengeLoot[random(0, sizeof(scavengeLoot) / sizeof(scavengeLoot[0]))];
+    const uint8_t exploreLoot[] = {1, 6, 8, 9, 12, 13};
+    return exploreLoot[random(0, sizeof(exploreLoot) / sizeof(exploreLoot[0]))];
 }
 
 uint8_t actionHeatGain(UiAction action, bool success) {
     switch (action) {
-        case UiAction::Scout:
-            return success ? 1 : 2;
-        case UiAction::Scavenge:
+        case UiAction::Observe:
+            return success ? 0 : 1;
+        case UiAction::Explore:
             return success ? 3 : 4;
-        case UiAction::Sneak:
-            return success ? 0 : 2;
+        case UiAction::FollowLead: {
+            const LeadKind lead = siteLead[currentSite];
+            if (lead == LeadKind::Contact || lead == LeadKind::Trail) {
+                return success ? 0 : 2;
+            }
+            if (lead == LeadKind::Anomaly) {
+                return success ? 1 : 3;
+            }
+            return success ? 2 : 3;
+        }
         default:
             return 0;
     }
@@ -806,6 +969,7 @@ void coolSitesForNewDay() {
     for (uint8_t i = 1; i < kSiteCount; ++i) {
         siteHeat[i] = siteHeat[i] > 2 ? static_cast<uint8_t>(siteHeat[i] - 2) : 0;
         siteIntel[i] = siteIntel[i] > 0 ? static_cast<uint8_t>(siteIntel[i] - 1) : 0;
+        siteLead[i] = LeadKind::None;
         if (siteCache[i] < sites[i].maxCache) {
             ++siteCache[i];
         }
@@ -874,69 +1038,135 @@ void checkCollapse() {
 
 void resolveFieldAction(UiAction action) {
     if (!fieldActionAvailable(action)) {
-        setStatus("That move is no longer sensible here. The clock, the cache, or the route says no.");
+        setStatus("That move is not open right now. Either the site is dry, the light is wrong, or you need a lead.");
         return;
     }
 
     const Stats stats = deriveStats();
     const Site& site = sites[currentSite];
+    const LeadKind lead = siteLead[currentSite];
     const int16_t skill = actionSkill(action, stats);
     const int16_t target = actionTarget(action);
     const int16_t total = skill + random(1, 7);
     const int16_t ambientDose = actionExposureCost(action, stats);
     const bool success = total >= target;
-    const char* verb = "";
-
-    if (action == UiAction::Scout) {
-        verb = "scouted";
-    } else if (action == UiAction::Scavenge) {
-        verb = "scavenged";
-    } else if (action == UiAction::Sneak) {
-        verb = "moved quiet through";
-    } else {
-        return;
-    }
+    const uint8_t heatGain = actionHeatGain(action, success);
 
     exposure = clampInt(exposure + ambientDose, 0, kMaxExposure);
-    siteHeat[currentSite] = clampInt(siteHeat[currentSite] + actionHeatGain(action, success), 0, kMaxSiteHeat);
+    siteHeat[currentSite] = clampInt(siteHeat[currentSite] + heatGain, 0, kMaxSiteHeat);
 
     char message[192];
-    if (success && action == UiAction::Scout) {
-        siteIntel[currentSite] = clampInt(siteIntel[currentSite] + 1, 0, kMaxSiteIntel);
-        const int16_t gain = random(0, 3);
-        scrap += gain;
-        snprintf(message, sizeof(message),
-                 "You %s %s. %s %d vs %d. Intel +1, heat +%u, +%d scrap. Cache reads %u.",
-                 verb, site.name, actionCheckText(action), total, target, actionHeatGain(action, success), gain,
-                 siteCache[currentSite]);
-    } else if (success) {
-        if (siteCache[currentSite] > 0) {
-            --siteCache[currentSite];
-        }
-        const uint8_t itemId = randomLootForAction(action);
-        const bool duplicate = hasCatalogItem(itemId) && itemCatalog[itemId].slot != Slot::Consumable;
-        const int16_t gain = effectiveRiskForSite(currentSite) + random(1, 5) + (action == UiAction::Scavenge ? 2 : 0);
-        scrap += gain;
-
-        if (!duplicate && random(0, 100) < 62) {
-            char itemMessage[112];
-            addItem(itemId, itemMessage, sizeof(itemMessage));
-            snprintf(message, sizeof(message), "You %s %s. %s %d vs %d. +%d scrap. %s Cache %u.",
-                     verb, site.name, actionCheckText(action), total, target, gain, itemMessage, siteCache[currentSite]);
-        } else {
-            scrap += itemCatalog[itemId].value / 3;
+    if (action == UiAction::Observe) {
+        if (success) {
+            const LeadKind foundLead = randomLeadForSite(currentSite);
+            const int16_t gain = random(0, 2);
+            siteLead[currentSite] = foundLead;
+            siteIntel[currentSite] = clampInt(siteIntel[currentSite] + 1, 0, kMaxSiteIntel);
+            scrap += gain;
             snprintf(message, sizeof(message),
-                     "You %s %s. %s %d vs %d. +%d scrap, plus fenceable salvage. Cache %u.",
-                     verb, site.name, actionCheckText(action), total, target, gain, siteCache[currentSite]);
+                     "You observe %s instead of touching it. %s %d/%d. Lead: %s. %s",
+                     site.name, actionCheckText(action), total, target, leadName(foundLead), leadWhisper(foundLead));
+        } else {
+            exposure = clampInt(exposure + 1, 0, kMaxExposure);
+            snprintf(message, sizeof(message),
+                     "You wait too long in bad cover. %s %d/%d. Heat +%u, exposure creeps up.",
+                     actionCheckText(action), total, target, heatGain);
+        }
+    } else if (action == UiAction::Explore) {
+        if (success) {
+            if (siteCache[currentSite] > 0) {
+                --siteCache[currentSite];
+            }
+
+            const int16_t gain = effectiveRiskForSite(currentSite) + random(1, 5);
+            scrap += gain;
+            if (siteLead[currentSite] == LeadKind::None && random(0, 100) < 55) {
+                const LeadKind foundLead = randomLeadForSite(currentSite);
+                siteLead[currentSite] = foundLead;
+                snprintf(message, sizeof(message),
+                         "You actively explore %s. %s %d/%d. +%d scrap, but the important thing is a %s.",
+                         site.name, actionCheckText(action), total, target, gain, leadName(foundLead));
+            } else {
+                const uint8_t itemId = randomLootForAction(action);
+                const bool duplicate = hasCatalogItem(itemId) && itemCatalog[itemId].slot != Slot::Consumable;
+                if (!duplicate && random(0, 100) < 58) {
+                    char itemMessage[112];
+                    addItem(itemId, itemMessage, sizeof(itemMessage));
+                    snprintf(message, sizeof(message), "You push through %s. %s %d/%d. +%d scrap. %s",
+                             site.name, actionCheckText(action), total, target, gain, itemMessage);
+                } else {
+                    scrap += itemCatalog[itemId].value / 3;
+                    snprintf(message, sizeof(message),
+                             "You push through %s. %s %d/%d. +%d scrap and sellable salvage. Cache %u.",
+                             site.name, actionCheckText(action), total, target, gain, siteCache[currentSite]);
+                }
+            }
+        } else {
+            const int16_t wound = 1 + effectiveRiskForSite(currentSite) / 5;
+            const int16_t dose = 1 + effectiveRiskForSite(currentSite) / 3;
+            health = clampInt(health - wound, 0, kMaxHealth);
+            exposure = clampInt(exposure + dose, 0, kMaxExposure);
+            snprintf(message, sizeof(message),
+                     "%s punishes blind movement. %s %d/%d. Heat +%u, -%d body, +%d exposure.",
+                     site.name, actionCheckText(action), total, target, heatGain, wound, dose);
+        }
+    } else if (action == UiAction::FollowLead) {
+        if (success) {
+            const int16_t risk = effectiveRiskForSite(currentSite);
+            int16_t gain = risk + random(2, 6);
+
+            if (lead == LeadKind::Contact) {
+                siteIntel[currentSite] = clampInt(siteIntel[currentSite] + 1, 0, kMaxSiteIntel);
+                scrap += gain;
+                siteHeat[currentSite] = siteHeat[currentSite] > 0 ? static_cast<uint8_t>(siteHeat[currentSite] - 1) : 0;
+                snprintf(message, sizeof(message),
+                         "You approach the quiet contact correctly. %s %d/%d. +%d scrap, intel +1, heat softens.",
+                         actionCheckText(action), total, target, gain);
+            } else if (lead == LeadKind::Trail) {
+                siteIntel[currentSite] = clampInt(siteIntel[currentSite] + 1, 0, kMaxSiteIntel);
+                siteHeat[currentSite] = siteHeat[currentSite] > 2 ? static_cast<uint8_t>(siteHeat[currentSite] - 3) : 0;
+                exposure = clampInt(exposure - 1, 0, kMaxExposure);
+                snprintf(message, sizeof(message),
+                         "You trace the cleaner footpath. %s %d/%d. Heat drops, exposure drops, intel +1.",
+                         actionCheckText(action), total, target);
+            } else {
+                if (siteCache[currentSite] > 0) {
+                    --siteCache[currentSite];
+                }
+                const uint8_t itemId = randomLootForAction(action);
+                const bool duplicate = hasCatalogItem(itemId) && itemCatalog[itemId].slot != Slot::Consumable;
+                if (lead == LeadKind::Anomaly) {
+                    exposure = clampInt(exposure + 1, 0, kMaxExposure);
+                    gain += 2;
+                } else if (lead == LeadKind::Door) {
+                    gain += 3;
+                }
+                scrap += gain;
+                if (!duplicate || itemCatalog[itemId].slot == Slot::Consumable) {
+                    char itemMessage[112];
+                    addItem(itemId, itemMessage, sizeof(itemMessage));
+                    snprintf(message, sizeof(message), "You %s the %s. %s %d/%d. +%d scrap. %s",
+                             leadVerb(lead), leadName(lead), actionCheckText(action), total, target, gain, itemMessage);
+                } else {
+                    scrap += itemCatalog[itemId].value / 3;
+                    snprintf(message, sizeof(message),
+                             "You %s the %s. %s %d/%d. +%d scrap and valuable fragments.",
+                             leadVerb(lead), leadName(lead), actionCheckText(action), total, target, gain);
+                }
+            }
+            siteLead[currentSite] = LeadKind::None;
+        } else {
+            const int16_t wound = lead == LeadKind::Contact || lead == LeadKind::Trail ? 1 : 2;
+            const int16_t dose = lead == LeadKind::Anomaly ? 3 : 1 + effectiveRiskForSite(currentSite) / 4;
+            health = clampInt(health - wound, 0, kMaxHealth);
+            exposure = clampInt(exposure + dose, 0, kMaxExposure);
+            siteLead[currentSite] = LeadKind::None;
+            snprintf(message, sizeof(message),
+                     "The %s turns bad. %s %d/%d. Lead lost, heat +%u, -%d body, +%d exposure.",
+                     leadName(lead), actionCheckText(action), total, target, heatGain, wound, dose);
         }
     } else {
-        const int16_t wound = action == UiAction::Sneak ? 2 : 1 + effectiveRiskForSite(currentSite) / 5;
-        const int16_t dose = 1 + effectiveRiskForSite(currentSite) / 3;
-        health = clampInt(health - wound, 0, kMaxHealth);
-        exposure = clampInt(exposure + dose, 0, kMaxExposure);
-        snprintf(message, sizeof(message),
-                 "%s bites back. %s %d vs %d. Heat +%u, -%d body, +%d exposure.",
-                 site.name, actionCheckText(action), total, target, actionHeatGain(action, success), wound, dose);
+        return;
     }
 
     setStatus(message);
@@ -1000,9 +1230,9 @@ void restOrRetreat() {
 
 void handleAction(UiAction action, int16_t param) {
     switch (action) {
-        case UiAction::Scout:
-        case UiAction::Scavenge:
-        case UiAction::Sneak:
+        case UiAction::Observe:
+        case UiAction::Explore:
+        case UiAction::FollowLead:
             resolveFieldAction(action);
             break;
         case UiAction::Inventory:
@@ -1073,22 +1303,26 @@ void drawFieldScreen() {
     display.setCursor(centerX + 20, top + 156);
     display.printf("risk %d  cache %u  intel %u  heat %u", effectiveRiskForSite(currentSite), siteCache[currentSite],
                    siteIntel[currentSite], siteHeat[currentSite]);
+    display.setCursor(centerX + 20, top + 176);
+    display.printf("lead: %s", leadName(siteLead[currentSite]));
 
-    display.drawFastHLine(centerX + 18, top + 176, centerW - 36, rgb(55, 70, 70));
+    display.drawFastHLine(centerX + 18, top + 198, centerW - 36, rgb(55, 70, 70));
     display.setFont(&fonts::Font4);
     display.setTextColor(rgb(130, 230, 200), panelBg);
-    display.drawString("Last Signal", centerX + 18, top + 202);
-    drawWrappedText(statusLine, centerX + 20, top + 246, centerW - 40, 5, TFT_WHITE, panelBg);
+    display.drawString("Last Signal", centerX + 18, top + 222);
+    drawWrappedText(statusLine, centerX + 20, top + 266, centerW - 40, 4, TFT_WHITE, panelBg);
 
     const int32_t buttonY = height - bottomH;
     const int32_t gap = 10;
     const int32_t buttonW = (width - gap * 7) / 6;
-    addButton("Scout 2h", gap, buttonY + 8, buttonW, 52, UiAction::Scout, 0, rgb(90, 210, 220),
-              fieldActionAvailable(UiAction::Scout));
-    addButton("Scav 4h", gap * 2 + buttonW, buttonY + 8, buttonW, 52, UiAction::Scavenge, 0, rgb(230, 180, 70),
-              fieldActionAvailable(UiAction::Scavenge));
-    addButton("Sneak 2h", gap * 3 + buttonW * 2, buttonY + 8, buttonW, 52, UiAction::Sneak, 0, rgb(220, 90, 190),
-              fieldActionAvailable(UiAction::Sneak));
+    addButton("Observe 2h", gap, buttonY + 8, buttonW, 52, UiAction::Observe, 0, rgb(90, 210, 220),
+              fieldActionAvailable(UiAction::Observe));
+    addButton("Explore 4h", gap * 2 + buttonW, buttonY + 8, buttonW, 52, UiAction::Explore, 0, rgb(230, 180, 70),
+              fieldActionAvailable(UiAction::Explore));
+    char leadButton[24];
+    snprintf(leadButton, sizeof(leadButton), "%s 2h", leadVerb(siteLead[currentSite]));
+    addButton(leadButton, gap * 3 + buttonW * 2, buttonY + 8, buttonW, 52, UiAction::FollowLead, 0,
+              rgb(220, 90, 190), fieldActionAvailable(UiAction::FollowLead));
     addButton("Kit", gap * 4 + buttonW * 3, buttonY + 8, buttonW, 52, UiAction::Inventory, 0, rgb(170, 120, 240));
     addButton("Map", gap * 5 + buttonW * 4, buttonY + 8, buttonW, 52, UiAction::Map, 0, rgb(120, 220, 120));
     addButton(currentSite == 0 ? "Rest" : "Retreat", gap * 6 + buttonW * 5, buttonY + 8, buttonW, 52, UiAction::Rest,
@@ -1606,6 +1840,7 @@ void initializeGame() {
         siteHeat[i] = 0;
         siteIntel[i] = 0;
         siteCache[i] = sites[i].maxCache;
+        siteLead[i] = LeadKind::None;
     }
 
     inventory[0] = 0;
