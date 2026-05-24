@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <M5Unified.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -606,6 +607,63 @@ bool hitButton(const Button& button, int32_t x, int32_t y) {
     return button.enabled && x >= button.x && x < button.x + button.w && y >= button.y && y < button.y + button.h;
 }
 
+// Copies text into a buffer and shortens it until it fits the current font.
+void makeTextFit(const char* text, int32_t maxWidth, char* output, size_t outputSize) {
+    if (outputSize == 0) {
+        return;
+    }
+    output[0] = '\0';
+    if (maxWidth <= 0) {
+        return;
+    }
+
+    auto& display = M5.Display;
+    snprintf(output, outputSize, "%s", text == nullptr ? "" : text);
+    if (display.textWidth(output) <= maxWidth) {
+        return;
+    }
+
+    const char* suffix = "...";
+    const int32_t suffixWidth = display.textWidth(suffix);
+    if (suffixWidth > maxWidth) {
+        output[0] = '\0';
+        return;
+    }
+
+    size_t len = strlen(output);
+    while (len > 0) {
+        output[--len] = '\0';
+        char candidate[160];
+        snprintf(candidate, sizeof(candidate), "%s%s", output, suffix);
+        if (display.textWidth(candidate) <= maxWidth) {
+            snprintf(output, outputSize, "%s", candidate);
+            return;
+        }
+    }
+
+    snprintf(output, outputSize, "%s", suffix);
+}
+
+// Draws a single line that is guaranteed not to overrun its allotted width.
+void drawTextFit(const char* text, int32_t x, int32_t y, int32_t maxWidth, uint16_t color, uint16_t background) {
+    char fitted[160];
+    makeTextFit(text, maxWidth, fitted, sizeof(fitted));
+    M5.Display.setTextDatum(textdatum_t::top_left);
+    M5.Display.setTextColor(color, background);
+    M5.Display.drawString(fitted, x, y);
+}
+
+// Formats and draws one fitted line, replacing raw printf calls in tight areas.
+void drawFormattedTextFit(int32_t x, int32_t y, int32_t maxWidth, uint16_t color, uint16_t background,
+                          const char* format, ...) {
+    char buffer[160];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    drawTextFit(buffer, x, y, maxWidth, color, background);
+}
+
 // Draws a registered button, including disabled styling.
 void drawButton(const Button& button) {
     if (!button.visible) {
@@ -621,7 +679,9 @@ void drawButton(const Button& button) {
     display.setTextDatum(textdatum_t::middle_center);
     display.setFont(&fonts::Font2);
     display.setTextColor(text, fill);
-    display.drawString(button.label, button.x + button.w / 2, button.y + button.h / 2);
+    char fitted[48];
+    makeTextFit(button.label, button.w - 16, fitted, sizeof(fitted));
+    display.drawString(fitted, button.x + button.w / 2, button.y + button.h / 2);
     display.setTextDatum(textdatum_t::top_left);
 }
 
@@ -653,7 +713,7 @@ void drawWrappedText(const char* text, int32_t x, int32_t y, int32_t w, uint8_t 
         }
 
         if (display.textWidth(candidate) > w && line[0] != '\0') {
-            display.drawString(line, x, y + lineCount * lineHeight);
+            drawTextFit(line, x, y + lineCount * lineHeight, w, color, background);
             ++lineCount;
             snprintf(line, sizeof(line), "%s", word);
         } else {
@@ -675,7 +735,7 @@ void drawWrappedText(const char* text, int32_t x, int32_t y, int32_t w, uint8_t 
     flushWord();
 
     if (line[0] != '\0' && lineCount < maxLines) {
-        display.drawString(line, x, y + lineCount * lineHeight);
+        drawTextFit(line, x, y + lineCount * lineHeight, w, color, background);
     }
 }
 
@@ -687,8 +747,7 @@ void drawMeter(int32_t x, int32_t y, int32_t w, int32_t h, int value, int maxVal
     const int32_t filled = (w - 4) * clampInt(value, 0, maxValue) / maxValue;
 
     display.setFont(&fonts::Font2);
-    display.setTextColor(rgb(180, 190, 190), bg);
-    display.drawString(label, x, y - 22);
+    drawTextFit(label, x, y - 22, w, rgb(180, 190, 190), bg);
     display.fillRect(x, y, w, h, bg);
     display.drawRect(x, y, w, h, rail);
     display.fillRect(x + 2, y + 2, filled, h - 4, color);
@@ -711,18 +770,26 @@ void drawHeader() {
     display.drawFastHLine(0, 63, width, rgb(70, 220, 170));
     display.setTextDatum(textdatum_t::top_left);
     display.setFont(&fonts::Font4);
-    display.setTextColor(TFT_WHITE, bg);
-    display.drawString("Neon Exclusion", 18, 12);
+    const int32_t headerInfoX = width > 560 ? width - 430 : 18;
+    if (width <= 560) {
+        drawTextFit("Neon Exclusion", 18, 8, width - 36, TFT_WHITE, bg);
+        display.setFont(&fonts::Font2);
+        drawFormattedTextFit(18, 40, width - 36, rgb(180, 190, 190), bg, "D%u %02u:00 scrap %d risk %d",
+                             static_cast<unsigned>(day), static_cast<unsigned>(currentHour()), scrap,
+                             effectiveRiskForSite(currentSite));
+        return;
+    }
+    drawTextFit("Neon Exclusion", 18, 12, headerInfoX - 36, TFT_WHITE, bg);
 
     display.setFont(&fonts::Font2);
-    display.setTextColor(rgb(180, 190, 190), bg);
-    display.setCursor(width - 430, 16);
-    display.printf("Day %u  %02u:00  scrap %d  dusk in %uh", static_cast<unsigned>(day),
-                   static_cast<unsigned>(currentHour()), scrap,
-                   static_cast<unsigned>(timeRemainingTicks() * kTickHours));
-    display.setCursor(width - 430, 38);
-    display.printf("bill %d at dawn  risk %d  cache %u  heat %u", kDailyUpkeep, effectiveRiskForSite(currentSite),
-                   siteCache[currentSite], siteHeat[currentSite]);
+    const int32_t headerInfoW = width - headerInfoX - 18;
+    drawFormattedTextFit(headerInfoX, 16, headerInfoW, rgb(180, 190, 190), bg,
+                         "Day %u  %02u:00  scrap %d  dusk in %uh", static_cast<unsigned>(day),
+                         static_cast<unsigned>(currentHour()), scrap,
+                         static_cast<unsigned>(timeRemainingTicks() * kTickHours));
+    drawFormattedTextFit(headerInfoX, 38, headerInfoW, rgb(180, 190, 190), bg,
+                         "bill %d at dawn  risk %d  cache %u  heat %u", kDailyUpkeep, effectiveRiskForSite(currentSite),
+                         siteCache[currentSite], siteHeat[currentSite]);
 }
 
 // Draws the runner condition meters and contextualized stats.
@@ -733,8 +800,7 @@ void drawStatsPanel(int32_t x, int32_t y, int32_t w, int32_t h) {
 
     drawPanel(x, y, w, h, rgb(48, 120, 130));
     display.setFont(&fonts::Font4);
-    display.setTextColor(TFT_WHITE, bg);
-    display.drawString("Runner", x + 14, y + 12);
+    drawTextFit("Runner", x + 14, y + 12, w - 28, TFT_WHITE, bg);
 
     drawMeter(x + 16, y + 56, w - 32, 14, health, kMaxHealth, rgb(230, 80, 90), "Body");
     drawMeter(x + 16, y + 102, w - 32, 14, exposure, kMaxExposure, rgb(170, 230, 80), "Exposure");
@@ -742,19 +808,12 @@ void drawStatsPanel(int32_t x, int32_t y, int32_t w, int32_t h) {
 
     const int32_t statY = y + 180;
     display.setFont(&fonts::Font2);
-    display.setTextColor(rgb(220, 230, 225), bg);
-    display.setCursor(x + 18, statY);
-    display.printf("GRIT breach  %d", stats.grit);
-    display.setCursor(x + 18, statY + 22);
-    display.printf("TECH bypass  %d", stats.tech);
-    display.setCursor(x + 18, statY + 44);
-    display.printf("SCAN anomaly %d", stats.scan);
-    display.setCursor(x + 18, statY + 66);
-    display.printf("GHOST heat   %d", stats.ghost);
-    display.setCursor(x + 18, statY + 88);
-    display.printf("FILTER dose  %d", stats.filter);
-    display.setCursor(x + 18, statY + 110);
-    display.printf("STRAIN weird %d", stats.strain);
+    drawFormattedTextFit(x + 18, statY, w - 36, rgb(220, 230, 225), bg, "GRIT breach  %d", stats.grit);
+    drawFormattedTextFit(x + 18, statY + 22, w - 36, rgb(220, 230, 225), bg, "TECH bypass  %d", stats.tech);
+    drawFormattedTextFit(x + 18, statY + 44, w - 36, rgb(220, 230, 225), bg, "SCAN anomaly %d", stats.scan);
+    drawFormattedTextFit(x + 18, statY + 66, w - 36, rgb(220, 230, 225), bg, "GHOST heat   %d", stats.ghost);
+    drawFormattedTextFit(x + 18, statY + 88, w - 36, rgb(220, 230, 225), bg, "FILTER dose  %d", stats.filter);
+    drawFormattedTextFit(x + 18, statY + 110, w - 36, rgb(220, 230, 225), bg, "STRAIN weird %d", stats.strain);
 }
 
 // Draws the currently equipped gear by slot.
@@ -765,18 +824,15 @@ void drawEquippedList(int32_t x, int32_t y, int32_t w, int32_t h) {
 
     drawPanel(x, y, w, h, rgb(130, 86, 170));
     display.setFont(&fonts::Font4);
-    display.setTextColor(TFT_WHITE, bg);
-    display.drawString("Loadout", x + 14, y + 12);
+    drawTextFit("Loadout", x + 14, y + 12, w - 28, TFT_WHITE, bg);
 
     display.setFont(&fonts::Font2);
     for (uint8_t i = 0; i < kEquipSlotCount; ++i) {
         const int32_t rowY = y + 60 + i * 50;
-        display.setTextColor(rgb(150, 170, 175), bg);
-        display.drawString(labels[i], x + 16, rowY);
-        display.setTextColor(TFT_WHITE, bg);
+        drawTextFit(labels[i], x + 16, rowY, w - 32, rgb(150, 170, 175), bg);
         const int16_t invSlot = equipped[i];
         const char* name = validInventorySlot(invSlot) ? itemCatalog[inventory[invSlot]].name : "empty";
-        display.drawString(name, x + 16, rowY + 22);
+        drawTextFit(name, x + 16, rowY + 22, w - 32, TFT_WHITE, bg);
     }
 }
 
@@ -787,8 +843,7 @@ void drawPackPreview(int32_t x, int32_t y, int32_t w, int32_t h) {
 
     drawPanel(x, y, w, h, rgb(190, 70, 150));
     display.setFont(&fonts::Font4);
-    display.setTextColor(TFT_WHITE, bg);
-    display.drawString("Pack", x + 14, y + 12);
+    drawTextFit("Pack", x + 14, y + 12, w - 28, TFT_WHITE, bg);
 
     display.setFont(&fonts::Font2);
     uint8_t drawn = 0;
@@ -799,10 +854,8 @@ void drawPackPreview(int32_t x, int32_t y, int32_t w, int32_t h) {
         const Item& item = itemCatalog[inventory[i]];
         const int32_t rowY = y + 58 + drawn * 38;
         display.fillRect(x + 14, rowY + 4, 8, 18, item.color);
-        display.setTextColor(TFT_WHITE, bg);
-        display.drawString(item.name, x + 30, rowY);
-        display.setTextColor(rgb(135, 150, 150), bg);
-        display.drawString(item.tag, x + 30, rowY + 18);
+        drawTextFit(item.name, x + 30, rowY, w - 44, TFT_WHITE, bg);
+        drawTextFit(item.tag, x + 30, rowY + 18, w - 44, rgb(135, 150, 150), bg);
         ++drawn;
     }
 }
@@ -816,16 +869,13 @@ void drawActionForecast(int32_t x, int32_t y, int32_t w, int32_t h) {
 
     drawPanel(x, y, w, h, rgb(190, 70, 150));
     display.setFont(&fonts::Font4);
-    display.setTextColor(TFT_WHITE, bg);
-    display.drawString("Field Read", x + 14, y + 12);
+    drawTextFit("Field Read", x + 14, y + 12, w - 28, TFT_WHITE, bg);
 
     display.setFont(&fonts::Font2);
-    display.setTextColor(rgb(150, 168, 170), bg);
-    display.setCursor(x + 16, y + 48);
-    display.printf("cache %u/%u  intel %u/%u  heat %u/%u", siteCache[currentSite], sites[currentSite].maxCache,
-                   siteIntel[currentSite], kMaxSiteIntel, siteHeat[currentSite], kMaxSiteHeat);
-    display.setCursor(x + 16, y + 66);
-    display.printf("lead: %s", leadName(siteLead[currentSite]));
+    drawFormattedTextFit(x + 16, y + 48, w - 32, rgb(150, 168, 170), bg,
+                         "cache %u/%u  intel %u/%u  heat %u/%u", siteCache[currentSite], sites[currentSite].maxCache,
+                         siteIntel[currentSite], kMaxSiteIntel, siteHeat[currentSite], kMaxSiteHeat);
+    drawFormattedTextFit(x + 16, y + 66, w - 32, rgb(150, 168, 170), bg, "lead: %s", leadName(siteLead[currentSite]));
 
     for (uint8_t i = 0; i < 3; ++i) {
         const UiAction action = actions[i];
@@ -839,16 +889,15 @@ void drawActionForecast(int32_t x, int32_t y, int32_t w, int32_t h) {
 
         display.fillRoundRect(x + 14, rowY, w - 28, 58, 6, rowBg);
         display.drawRoundRect(x + 14, rowY, w - 28, 58, 6, border);
-        display.setTextColor(enabled ? TFT_WHITE : rgb(110, 115, 120), rowBg);
-        display.drawString(actionLabel(action), x + 26, rowY + 8);
-        display.setTextColor(enabled ? rgb(180, 210, 205) : rgb(95, 100, 102), rowBg);
-        display.setCursor(x + 118, rowY + 8);
-        display.printf("%s %d/%d", actionCheckText(action), skill, target);
-        display.setCursor(x + 26, rowY + 30);
-        display.printf("%u%%  %uh  dose +%d", chance, static_cast<unsigned>(actionTimeCost(action) * kTickHours),
-                       actionExposureCost(action, stats));
-        display.setCursor(x + 168, rowY + 30);
-        display.print(enabled ? actionPayoffText(action) : actionBlockedText(action));
+        drawTextFit(actionLabel(action), x + 26, rowY + 8, 84, enabled ? TFT_WHITE : rgb(110, 115, 120), rowBg);
+        drawFormattedTextFit(x + 118, rowY + 8, w - 144, enabled ? rgb(180, 210, 205) : rgb(95, 100, 102), rowBg,
+                             "%s %d/%d", actionCheckText(action), skill, target);
+        drawFormattedTextFit(x + 26, rowY + 30, 132, enabled ? rgb(180, 210, 205) : rgb(95, 100, 102), rowBg,
+                             "%u%%  %uh  dose +%d", chance,
+                             static_cast<unsigned>(actionTimeCost(action) * kTickHours),
+                             actionExposureCost(action, stats));
+        drawTextFit(enabled ? actionPayoffText(action) : actionBlockedText(action), x + 168, rowY + 30, w - 196,
+                    enabled ? rgb(180, 210, 205) : rgb(95, 100, 102), rowBg);
     }
 }
 
@@ -1258,25 +1307,21 @@ void drawFieldScreen() {
 
     drawPanel(centerX, top, centerW, contentH, sites[currentSite].color);
     display.setFont(&fonts::Font4);
-    display.setTextColor(TFT_WHITE, panelBg);
-    display.drawString(sites[currentSite].name, centerX + 18, top + 18);
+    drawTextFit(sites[currentSite].name, centerX + 18, top + 18, centerW - 36, TFT_WHITE, panelBg);
     display.setFont(&fonts::Font2);
-    display.setTextColor(rgb(155, 175, 175), panelBg);
-    display.drawString(sites[currentSite].district, centerX + 20, top + 52);
+    drawTextFit(sites[currentSite].district, centerX + 20, top + 52, centerW - 40, rgb(155, 175, 175), panelBg);
     drawWrappedText(sites[currentSite].description, centerX + 20, top + 88, centerW - 40, 3, rgb(210, 218, 210),
                     panelBg);
     display.setFont(&fonts::Font2);
-    display.setTextColor(rgb(180, 210, 205), panelBg);
-    display.setCursor(centerX + 20, top + 156);
-    display.printf("risk %d  cache %u  intel %u  heat %u", effectiveRiskForSite(currentSite), siteCache[currentSite],
-                   siteIntel[currentSite], siteHeat[currentSite]);
-    display.setCursor(centerX + 20, top + 176);
-    display.printf("lead: %s", leadName(siteLead[currentSite]));
+    drawFormattedTextFit(centerX + 20, top + 156, centerW - 40, rgb(180, 210, 205), panelBg,
+                         "risk %d  cache %u  intel %u  heat %u", effectiveRiskForSite(currentSite),
+                         siteCache[currentSite], siteIntel[currentSite], siteHeat[currentSite]);
+    drawFormattedTextFit(centerX + 20, top + 176, centerW - 40, rgb(180, 210, 205), panelBg, "lead: %s",
+                         leadName(siteLead[currentSite]));
 
     display.drawFastHLine(centerX + 18, top + 198, centerW - 36, rgb(55, 70, 70));
     display.setFont(&fonts::Font4);
-    display.setTextColor(rgb(130, 230, 200), panelBg);
-    display.drawString("Last Signal", centerX + 18, top + 222);
+    drawTextFit("Last Signal", centerX + 18, top + 222, centerW - 36, rgb(130, 230, 200), panelBg);
     drawWrappedText(statusLine, centerX + 20, top + 266, centerW - 40, 4, TFT_WHITE, panelBg);
 
     const int32_t buttonY = height - bottomH;
@@ -1459,9 +1504,9 @@ void drawMapBackground(int32_t x, int32_t y, int32_t w, int32_t h) {
     }
 
     display.setFont(&fonts::Font2);
-    display.setTextColor(rgb(82, 112, 96), bg);
-    display.drawString("ORBITAL PASS DEGRADED / GROUND TRUTH PATCHED BY WALKED ROUTES", x + 24, y + h - 30);
-    display.drawString("mud, roof, poison water, heat bloom", x + 24, y + 16);
+    drawTextFit("ORBITAL PASS DEGRADED / GROUND TRUTH PATCHED BY WALKED ROUTES", x + 24, y + h - 30, w - 48,
+                rgb(82, 112, 96), bg);
+    drawTextFit("mud, roof, poison water, heat bloom", x + 24, y + 16, w - 48, rgb(82, 112, 96), bg);
     display.clearClipRect();
 }
 
@@ -1610,8 +1655,13 @@ void drawMapPins(int32_t x, int32_t y, int32_t w, int32_t h) {
         }
 
         display.setFont(&fonts::Font2);
-        display.setTextColor(selected ? TFT_WHITE : rgb(180, 198, 190), bg);
-        display.drawString(pin.callSign, px + 29, py - 10);
+        int32_t labelX = px + 29;
+        int32_t labelW = x + w - labelX - 8;
+        if (labelW < 54) {
+            labelX = px - 86;
+            labelW = px - labelX - 28;
+        }
+        drawTextFit(pin.callSign, labelX, py - 10, labelW, selected ? TFT_WHITE : rgb(180, 198, 190), bg);
         addButton("", px - 50, py - 42, 132, 84, UiAction::SelectSite, pin.site, site.color, true, false);
     }
 }
@@ -1631,32 +1681,27 @@ void drawMapDetailPanel(int32_t x, int32_t y, int32_t w, int32_t h) {
 
     drawPanel(x, y, w, h, site.color);
     display.setFont(&fonts::Font4);
-    display.setTextColor(TFT_WHITE, bg);
-    display.drawString(site.name, x + 16, y + 16);
+    drawTextFit(site.name, x + 16, y + 16, w - 32, TFT_WHITE, bg);
     display.setFont(&fonts::Font2);
-    display.setTextColor(rgb(160, 180, 178), bg);
-    display.drawString(site.district, x + 18, y + 52);
+    drawTextFit(site.district, x + 18, y + 52, w - 36, rgb(160, 180, 178), bg);
 
-    display.setTextColor(rgb(125, 230, 205), bg);
-    display.setCursor(x + 18, y + 86);
-    display.printf("risk %d  cache %u/%u  intel %u  heat %u", effectiveRiskForSite(siteIndex), siteCache[siteIndex],
-                   site.maxCache, siteIntel[siteIndex], siteHeat[siteIndex]);
+    drawFormattedTextFit(x + 18, y + 86, w - 36, rgb(125, 230, 205), bg,
+                         "risk %d  cache %u/%u  intel %u  heat %u", effectiveRiskForSite(siteIndex),
+                         siteCache[siteIndex], site.maxCache, siteIntel[siteIndex], siteHeat[siteIndex]);
 
-    display.setTextColor(rgb(215, 222, 212), bg);
     drawWrappedText(pin.whisper, x + 18, y + 122, w - 36, 3, rgb(215, 222, 212), bg);
     drawWrappedText(site.description, x + 18, y + 198, w - 36, 4, rgb(165, 180, 176), bg);
 
     display.drawFastHLine(x + 16, y + h - 120, w - 32, rgb(55, 70, 70));
-    display.setTextColor(rgb(200, 210, 205), bg);
-    display.setCursor(x + 18, y + h - 96);
     if (here) {
-        display.print("You are already inside this signal.");
+        drawTextFit("You are already inside this signal.", x + 18, y + h - 96, w - 36, rgb(200, 210, 205), bg);
     } else {
-        display.printf("route %s  %uh  dose +%d", directRoute(currentSite, siteIndex) ? "direct" : "cross-town",
-                       static_cast<unsigned>(ticks * kTickHours), routeDose);
+        drawFormattedTextFit(x + 18, y + h - 96, w - 36, rgb(200, 210, 205), bg, "route %s  %uh  dose +%d",
+                             directRoute(currentSite, siteIndex) ? "direct" : "cross-town",
+                             static_cast<unsigned>(ticks * kTickHours), routeDose);
     }
-    display.setCursor(x + 18, y + h - 70);
-    display.print(travelReady ? "The route is open." : (here ? "Current location." : "Curfew blocks this route."));
+    drawTextFit(travelReady ? "The route is open." : (here ? "Current location." : "Curfew blocks this route."),
+                x + 18, y + h - 70, w - 36, rgb(200, 210, 205), bg);
 }
 
 // Draws the map screen as a degraded satellite pass plus in-world annotations.
@@ -1698,13 +1743,10 @@ void drawMapScreen() {
 }
 
 // Draws an item's stat deltas in a compact six-stat row.
-void drawStatDelta(const Item& item, int32_t x, int32_t y, uint16_t bg) {
-    auto& display = M5.Display;
-    display.setFont(&fonts::Font2);
-    display.setTextColor(rgb(160, 180, 180), bg);
-    display.setCursor(x, y);
-    display.printf("G%+d T%+d S%+d H%+d F%+d X%+d", item.grit, item.tech, item.scan, item.ghost, item.filter,
-                   item.strain);
+void drawStatDelta(const Item& item, int32_t x, int32_t y, int32_t maxWidth, uint16_t bg) {
+    M5.Display.setFont(&fonts::Font2);
+    drawFormattedTextFit(x, y, maxWidth, rgb(160, 180, 180), bg, "G%+d T%+d S%+d H%+d F%+d X%+d", item.grit,
+                         item.tech, item.scan, item.ghost, item.filter, item.strain);
 }
 
 // Draws the common field-photo frame behind every item illustration.
@@ -1934,16 +1976,14 @@ void drawItemDetailScreen() {
 
     drawPanel(detailX, top, detailW, imageH, item.color);
     display.setFont(&fonts::Font4);
-    display.setTextColor(TFT_WHITE, bg);
-    display.drawString(item.name, detailX + 18, top + 16);
+    drawTextFit(item.name, detailX + 18, top + 16, detailW - 36, TFT_WHITE, bg);
 
     display.setFont(&fonts::Font2);
-    display.setTextColor(rgb(160, 180, 178), bg);
-    display.setCursor(detailX + 20, top + 54);
-    display.printf("%s / %s  value %u", slotName(item.slot), item.tag, static_cast<unsigned>(item.value));
+    const int32_t metaW = equippedNow ? detailW - 160 : detailW - 40;
+    drawFormattedTextFit(detailX + 20, top + 54, metaW, rgb(160, 180, 178), bg, "%s / %s  value %u",
+                         slotName(item.slot), item.tag, static_cast<unsigned>(item.value));
     if (equippedNow) {
-        display.setTextColor(rgb(120, 240, 190), bg);
-        display.drawString("EQUIPPED", detailX + detailW - 116, top + 54);
+        drawTextFit("EQUIPPED", detailX + detailW - 116, top + 54, 98, rgb(120, 240, 190), bg);
     }
 
     display.drawFastHLine(detailX + 18, top + 88, detailW - 36, rgb(55, 70, 70));
@@ -1951,17 +1991,15 @@ void drawItemDetailScreen() {
     drawWrappedText(item.description, detailX + 20, top + 112, detailW - 40, 4, rgb(215, 222, 212), bg);
 
     display.setTextColor(rgb(125, 230, 205), bg);
-    display.drawString("Field Read", detailX + 20, top + 222);
+    drawTextFit("Field Read", detailX + 20, top + 222, detailW - 40, rgb(125, 230, 205), bg);
     drawWrappedText(item.fieldRead, detailX + 20, top + 252, detailW - 40, 3, rgb(170, 188, 184), bg);
 
     display.drawFastHLine(detailX + 18, top + imageH - 84, detailW - 36, rgb(55, 70, 70));
-    display.setTextColor(rgb(210, 220, 215), bg);
-    display.drawString("Effects", detailX + 20, top + imageH - 62);
-    drawStatDelta(item, detailX + 96, top + imageH - 62, bg);
-    display.setTextColor(rgb(145, 160, 158), bg);
-    display.setCursor(detailX + 20, top + imageH - 36);
-    display.printf("use %s  body %+d  dose %+d  scrap %+d", itemUseKindText(item.use.kind), item.use.healthDelta,
-                   item.use.exposureDelta, item.use.scrapDelta);
+    drawTextFit("Effects", detailX + 20, top + imageH - 62, 70, rgb(210, 220, 215), bg);
+    drawStatDelta(item, detailX + 96, top + imageH - 62, detailW - 132, bg);
+    drawFormattedTextFit(detailX + 20, top + imageH - 36, detailW - 40, rgb(145, 160, 158), bg,
+                         "use %s  body %+d  dose %+d  scrap %+d", itemUseKindText(item.use.kind),
+                         item.use.healthDelta, item.use.exposureDelta, item.use.scrapDelta);
 
     const int32_t buttonY = height - bottomH;
     addButton("Pack", margin, buttonY + 8, 160, 52, UiAction::Inventory, 0, rgb(90, 210, 220));
@@ -1997,8 +2035,7 @@ void drawInventoryScreen() {
     drawPanel(listX, top, listW, height - top - bottomH - margin, rgb(170, 120, 240));
 
     display.setFont(&fonts::Font4);
-    display.setTextColor(TFT_WHITE, bg);
-    display.drawString("Inventory", listX + 18, top + 16);
+    drawTextFit("Inventory", listX + 18, top + 16, listW - 36, TFT_WHITE, bg);
 
     display.setFont(&fonts::Font2);
     display.setTextColor(rgb(150, 168, 170), bg);
@@ -2010,9 +2047,10 @@ void drawInventoryScreen() {
     normalizeInventoryPage(rowsPerPage);
     const uint8_t inventoryCount = inventoryItemCount();
     const uint8_t maxPage = maxInventoryPage(rowsPerPage);
-    display.setCursor(listX + 18, top + 52);
-    display.printf("Tap an item to inspect it.  %u carried  page %u/%u", static_cast<unsigned>(inventoryCount),
-                   static_cast<unsigned>(inventoryPage + 1), static_cast<unsigned>(maxPage + 1));
+    drawFormattedTextFit(listX + 18, top + 52, listW - 36, rgb(150, 168, 170), bg,
+                         "Tap an item to inspect it.  %u carried  page %u/%u",
+                         static_cast<unsigned>(inventoryCount), static_cast<unsigned>(inventoryPage + 1),
+                         static_cast<unsigned>(maxPage + 1));
 
     const uint8_t startRow = static_cast<uint8_t>(inventoryPage * rowsPerPage);
     uint8_t seen = 0;
@@ -2035,14 +2073,11 @@ void drawInventoryScreen() {
         display.fillRoundRect(listX + 16, rowY, listW - 32, rowH - 8, 6, rowBg);
         display.drawRoundRect(listX + 16, rowY, listW - 32, rowH - 8, 6, equippedNow ? rgb(100, 230, 180) : item.color);
         display.fillRect(listX + 28, rowY + 13, 10, 24, item.color);
-        display.setTextColor(TFT_WHITE, rowBg);
-        display.drawString(item.name, listX + 50, rowY + 8);
-        display.setTextColor(rgb(150, 168, 170), rowBg);
-        display.drawString(slotName(item.slot), listX + 260, rowY + 8);
-        drawStatDelta(item, listX + 50, rowY + 30, rowBg);
+        drawTextFit(item.name, listX + 50, rowY + 8, 198, TFT_WHITE, rowBg);
+        drawTextFit(slotName(item.slot), listX + 260, rowY + 8, listW - 408, rgb(150, 168, 170), rowBg);
+        drawStatDelta(item, listX + 50, rowY + 30, equippedNow ? listW - 220 : listW - 82, rowBg);
         if (equippedNow) {
-            display.setTextColor(rgb(120, 240, 190), rowBg);
-            display.drawString("EQUIPPED", listX + listW - 126, rowY + 18);
+            drawTextFit("EQUIPPED", listX + listW - 126, rowY + 18, 100, rgb(120, 240, 190), rowBg);
         }
         addButton("", listX + 16, rowY, listW - 32, rowH - 8, UiAction::InspectItem, i, item.color, true, false);
         ++drawn;
