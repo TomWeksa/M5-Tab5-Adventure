@@ -1177,9 +1177,12 @@ void clearPinnedLead() {
     pinnedLead = LeadKind::None;
 }
 
-void selectDawnOffer(int16_t index) {
+bool selectDawnOffer(int16_t index) {
     if (index < 0 || index >= 3 || !dawnOffers[index].active) {
-        return;
+        return false;
+    }
+    if (selectedDawnOffer == index) {
+        return false;
     }
 
     selectedDawnOffer = static_cast<int8_t>(index);
@@ -1188,6 +1191,7 @@ void selectDawnOffer(int16_t index) {
     snprintf(message, sizeof(message), "You mark %s at %s as today's focus.",
              dawnOfferKindName(offer.kind), sites[offer.site].name);
     setStatus(message);
+    return true;
 }
 
 void pinCurrentLead() {
@@ -3420,8 +3424,9 @@ void handleAction(UiAction action, int16_t param) {
             screenDirty = true;
             break;
         case UiAction::SelectDawnOffer:
-            selectDawnOffer(param);
-            screenDirty = true;
+            if (selectDawnOffer(param)) {
+                screenDirty = true;
+            }
             break;
         case UiAction::PinLead:
             pinCurrentLead();
