@@ -1107,36 +1107,156 @@ int32_t mapPinY(const MapPin& pin, int32_t y, int32_t h) {
     return y + 26 + static_cast<int32_t>(pin.yPermille) * (h - 52) / 1000;
 }
 
+uint32_t mapNoise(uint32_t seed) {
+    seed ^= seed >> 16;
+    seed *= 2246822519UL;
+    seed ^= seed >> 13;
+    seed *= 3266489917UL;
+    seed ^= seed >> 16;
+    return seed;
+}
+
+uint16_t satelliteSiteStain(uint8_t siteIndex) {
+    switch (siteIndex) {
+        case 1:
+            return rgb(72, 32, 62);
+        case 2:
+            return rgb(36, 52, 78);
+        case 3:
+            return rgb(74, 62, 32);
+        case 4:
+            return rgb(42, 76, 38);
+        default:
+            return rgb(36, 60, 58);
+    }
+}
+
+void drawThickLine(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t color, uint8_t radius) {
+    auto& display = M5.Display;
+    display.drawLine(x0, y0, x1, y1, color);
+    for (uint8_t i = 1; i <= radius; ++i) {
+        display.drawLine(x0 + i, y0, x1 + i, y1, color);
+        display.drawLine(x0 - i, y0, x1 - i, y1, color);
+        display.drawLine(x0, y0 + i, x1, y1 + i, color);
+        display.drawLine(x0, y0 - i, x1, y1 - i, color);
+    }
+}
+
+void drawCurvedTerrainStroke(int32_t ax, int32_t ay, int32_t bx, int32_t by, int32_t bendX, int32_t bendY,
+                             uint16_t color, uint8_t radius, uint8_t steps) {
+    const int32_t cx = (ax + bx) / 2 + bendX;
+    const int32_t cy = (ay + by) / 2 + bendY;
+    int32_t prevX = ax;
+    int32_t prevY = ay;
+
+    for (uint8_t i = 1; i <= steps; ++i) {
+        const int32_t t = i;
+        const int32_t inv = steps - i;
+        const int32_t denom = static_cast<int32_t>(steps) * static_cast<int32_t>(steps);
+        const int32_t px = (inv * inv * ax + 2 * inv * t * cx + t * t * bx) / denom;
+        const int32_t py = (inv * inv * ay + 2 * inv * t * cy + t * t * by) / denom;
+        drawThickLine(prevX, prevY, px, py, color, radius);
+        prevX = px;
+        prevY = py;
+    }
+}
+
+void drawWalkedRoute(uint8_t edgeIndex, int32_t ax, int32_t ay, int32_t bx, int32_t by, uint16_t signalColor,
+                     bool highlighted) {
+    const int32_t dx = bx - ax;
+    const int32_t dy = by - ay;
+    const int32_t direction = (edgeIndex % 2) == 0 ? 1 : -1;
+    const int32_t bend = 22 + static_cast<int32_t>((edgeIndex * 19U) % 31U);
+    const int32_t bendX = direction * (-dy) * bend / 170 + static_cast<int32_t>((edgeIndex * 17U) % 23U) - 11;
+    const int32_t bendY = direction * dx * bend / 170 + static_cast<int32_t>((edgeIndex * 29U) % 27U) - 13;
+
+    drawCurvedTerrainStroke(ax, ay, bx, by, bendX, bendY, rgb(20, 25, 22), 4, 14);
+    drawCurvedTerrainStroke(ax, ay, bx, by, bendX, bendY, rgb(74, 63, 42), highlighted ? 3 : 2, 14);
+
+    if (highlighted) {
+        drawCurvedTerrainStroke(ax, ay, bx, by, bendX, bendY, signalColor, 1, 14);
+    } else {
+        drawCurvedTerrainStroke(ax, ay, bx, by, bendX, bendY, rgb(58, 72, 64), 0, 14);
+    }
+
+    for (uint8_t i = 2; i < 14; i += 3) {
+        const int32_t t = i;
+        const int32_t inv = 14 - i;
+        const int32_t cx = (ax + bx) / 2 + bendX;
+        const int32_t cy = (ay + by) / 2 + bendY;
+        const int32_t px = (inv * inv * ax + 2 * inv * t * cx + t * t * bx) / (14 * 14);
+        const int32_t py = (inv * inv * ay + 2 * inv * t * cy + t * t * by) / (14 * 14);
+        M5.Display.fillCircle(px + static_cast<int32_t>((edgeIndex + i) % 5) - 2, py, highlighted ? 3 : 2,
+                              highlighted ? signalColor : rgb(86, 75, 50));
+    }
+}
+
 void drawMapBackground(int32_t x, int32_t y, int32_t w, int32_t h) {
     auto& display = M5.Display;
-    const uint16_t bg = rgb(4, 8, 11);
+    const uint16_t bg = rgb(6, 9, 8);
 
     drawPanel(x, y, w, h, rgb(46, 120, 110));
-    for (int32_t gx = x + 32; gx < x + w - 24; gx += 58) {
-        display.drawFastVLine(gx, y + 18, h - 36, rgb(13, 28, 32));
-    }
-    for (int32_t gy = y + 30; gy < y + h - 20; gy += 46) {
-        display.drawFastHLine(x + 18, gy, w - 36, rgb(12, 25, 30));
+    display.setClipRect(x + 2, y + 2, w - 4, h - 4);
+    display.fillRoundRect(x + 2, y + 2, w - 4, h - 4, 8, bg);
+
+    for (uint8_t i = 0; i < 105; ++i) {
+        const uint32_t seed = mapNoise(static_cast<uint32_t>(i) * 4099UL + static_cast<uint32_t>(day) * 193UL);
+        const int32_t px = x + 12 + static_cast<int32_t>(seed % static_cast<uint32_t>(w - 24));
+        const int32_t py = y + 12 + static_cast<int32_t>((seed >> 9) % static_cast<uint32_t>(h - 24));
+        const int32_t radius = 8 + static_cast<int32_t>((seed >> 18) % 28U);
+        uint16_t color = rgb(18, 28, 24);
+        switch ((seed >> 27) & 0x03U) {
+            case 0:
+                color = rgb(22, 34, 26);
+                break;
+            case 1:
+                color = rgb(33, 31, 24);
+                break;
+            case 2:
+                color = rgb(16, 31, 36);
+                break;
+            default:
+                color = rgb(37, 25, 31);
+                break;
+        }
+        display.fillCircle(px, py, radius, color);
     }
 
-    for (uint8_t i = 0; i < 42; ++i) {
-        const uint32_t seed = static_cast<uint32_t>(i) * 1103515245UL + static_cast<uint32_t>(day) * 977UL;
-        const int32_t px = x + 18 + static_cast<int32_t>(seed % static_cast<uint32_t>(w - 36));
-        const int32_t py = y + 18 + static_cast<int32_t>((seed / 97U) % static_cast<uint32_t>(h - 36));
-        display.drawPixel(px, py, rgb(30, 70, 72));
-        if ((i % 9) == 0) {
-            display.drawFastHLine(px - 5, py, 11, rgb(40, 90, 82));
+    drawCurvedTerrainStroke(x + 34, y + h - 68, x + w - 38, y + 62, -34, 42, rgb(12, 35, 42), 10, 18);
+    drawCurvedTerrainStroke(x + 34, y + h - 68, x + w - 38, y + 62, -34, 42, rgb(18, 58, 62), 6, 18);
+    drawCurvedTerrainStroke(x + 58, y + 76, x + w - 78, y + h - 86, 46, -28, rgb(44, 43, 36), 4, 16);
+    drawCurvedTerrainStroke(x + 86, y + h - 44, x + w - 120, y + 108, -58, -16, rgb(31, 34, 31), 3, 15);
+
+    for (uint8_t i = 0; i < kMapPinCount; ++i) {
+        const int32_t px = mapPinX(mapPins[i], x, w);
+        const int32_t py = mapPinY(mapPins[i], y, h);
+        const uint16_t stain = satelliteSiteStain(mapPins[i].site);
+        display.fillCircle(px, py, 38 + siteHeat[mapPins[i].site] * 5, stain);
+        display.fillCircle(px + 19, py - 12, 22, stain);
+        display.fillCircle(px - 18, py + 15, 18, stain);
+    }
+
+    for (uint8_t i = 0; i < 32; ++i) {
+        const uint32_t seed = mapNoise(0x5A7E1111UL + static_cast<uint32_t>(i) * 991UL);
+        const int32_t px = x + 24 + static_cast<int32_t>(seed % static_cast<uint32_t>(w - 48));
+        const int32_t py = y + 24 + static_cast<int32_t>((seed >> 10) % static_cast<uint32_t>(h - 48));
+        const int32_t rw = 7 + static_cast<int32_t>((seed >> 20) % 18U);
+        const int32_t rh = 3 + static_cast<int32_t>((seed >> 25) % 9U);
+        const uint16_t color = ((seed >> 4) & 1U) != 0 ? rgb(44, 45, 40) : rgb(27, 31, 30);
+        display.fillRect(px, py, rw, rh, color);
+        if ((seed & 0x03U) == 0) {
+            display.drawFastHLine(px - 2, py + rh + 2, rw + 4, rgb(18, 22, 20));
         }
     }
 
     display.setFont(&fonts::Font2);
-    display.setTextColor(rgb(45, 90, 88), bg);
-    display.drawString("CITY SURVEY REFUSED / SIGNAL MAP RECONSTRUCTED FROM BAD DATA", x + 24, y + h - 30);
-    display.drawString("red routes mean attention, green routes mean lies", x + 24, y + 16);
+    display.setTextColor(rgb(82, 112, 96), bg);
+    display.drawString("ORBITAL PASS DEGRADED / GROUND TRUTH PATCHED BY WALKED ROUTES", x + 24, y + h - 30);
+    display.drawString("mud, roof, poison water, heat bloom", x + 24, y + 16);
+    display.clearClipRect();
 }
 
 void drawMapRoutes(int32_t x, int32_t y, int32_t w, int32_t h) {
-    auto& display = M5.Display;
     for (uint8_t i = 0; i < kRouteEdgeCount; ++i) {
         const MapPin& a = mapPins[routeEdges[i].from];
         const MapPin& b = mapPins[routeEdges[i].to];
@@ -1146,12 +1266,9 @@ void drawMapRoutes(int32_t x, int32_t y, int32_t w, int32_t h) {
         const int32_t by = mapPinY(b, y, h);
         const bool active = routeEdges[i].from == currentSite || routeEdges[i].to == currentSite;
         const bool selected = routeEdges[i].from == selectedMapSite || routeEdges[i].to == selectedMapSite;
-        const uint16_t color = active ? rgb(110, 230, 180) : (selected ? rgb(180, 120, 230) : rgb(45, 72, 78));
-
-        display.drawLine(ax, ay, bx, by, color);
-        if (active || selected) {
-            display.drawLine(ax + 1, ay, bx + 1, by, color);
-        }
+        const bool highlighted = active || selected;
+        const uint16_t color = active ? rgb(110, 230, 180) : (selected ? rgb(180, 120, 230) : rgb(72, 92, 70));
+        drawWalkedRoute(i, ax, ay, bx, by, color, highlighted);
     }
 }
 
