@@ -3877,33 +3877,25 @@ void drawItemDetailScreen() {
     drawTextFit("Field Read", detailX + 20, top + 222, detailW - 40, rgb(125, 230, 205), bg);
     drawWrappedText(item.fieldRead, detailX + 20, top + 252, detailW - 40, 3, rgb(170, 188, 184), bg);
 
-    const int32_t statHelpW = (detailW - 60) / 2;
-    const int32_t previewX = detailX + 40 + statHelpW;
-    const int32_t previewW = detailW - (previewX - detailX) - 20;
     display.drawFastHLine(detailX + 18, top + 334, detailW - 36, rgb(55, 70, 70));
-    drawTextFit("Stat Meaning", detailX + 20, top + 354, statHelpW, rgb(125, 230, 205), bg);
-    drawWrappedText(
-        "Grit handles force and injury. Tech handles doors, devices, and contacts. Scan reads anomalies and trails.",
-        detailX + 20, top + 382, statHelpW, 3, rgb(170, 188, 184), bg);
-    drawWrappedText("Ghost handles people, trails, and heat. Filter resists exposure. Strain raises weird dose risk.",
-                    detailX + 20, top + 452, statHelpW, 2, rgb(170, 188, 184), bg);
-
-    drawTextFit("Runner Preview", previewX, top + 354, previewW, rgb(125, 230, 205), bg);
-    drawTextFit("Current stats", previewX, top + 374, previewW, rgb(150, 168, 170), bg);
-    drawRunnerStatsRows(currentStats, previewX, top + 398, previewW, rgb(220, 230, 225), bg);
+    drawTextFit("Runner Preview", detailX + 20, top + 354, detailW - 40, rgb(125, 230, 205), bg);
+    drawTextFit("Guide: Grit force, Tech devices, Scan reads, Ghost heat, Filter exposure, Strain risk.",
+                detailX + 20, top + 376, detailW - 40, rgb(170, 188, 184), bg);
+    drawTextFit("Current stats", detailX + 20, top + 402, detailW - 40, rgb(150, 168, 170), bg);
+    drawRunnerStatsRows(currentStats, detailX + 20, top + 424, detailW - 40, rgb(220, 230, 225), bg);
     drawTextFit(equippedNow ? "Already equipped" : (canPreviewEquip ? "Net if equipped" : "Use effect below"),
-                previewX, top + 444, previewW, rgb(150, 168, 170), bg);
+                detailX + 20, top + 468, detailW - 40, rgb(150, 168, 170), bg);
     if (canPreviewEquip) {
-        drawRunnerNetRows(currentStats, previewStats, previewX, top + 466, previewW, bg);
+        drawRunnerNetRows(currentStats, previewStats, detailX + 20, top + 490, detailW - 40, bg);
     } else {
-        drawTextFit("No slot change; use effect is listed below.", previewX, top + 466, previewW,
+        drawTextFit("No slot change; use effect is listed below.", detailX + 20, top + 490, detailW - 40,
                     rgb(190, 220, 210), bg);
     }
 
-    display.drawFastHLine(detailX + 18, top + imageH - 118, detailW - 36, rgb(55, 70, 70));
-    drawTextFit("Effects", detailX + 20, top + imageH - 96, detailW - 40, rgb(210, 220, 215), bg);
-    drawFullItemStats(item, detailX + 20, top + imageH - 70, detailW - 40, bg);
-    drawFormattedTextFit(detailX + 20, top + imageH - 24, detailW - 40, rgb(145, 160, 158), bg,
+    display.drawFastHLine(detailX + 18, top + imageH - 96, detailW - 36, rgb(55, 70, 70));
+    drawTextFit("Effects", detailX + 20, top + imageH - 76, detailW - 40, rgb(210, 220, 215), bg);
+    drawFullItemStats(item, detailX + 20, top + imageH - 52, detailW - 40, bg);
+    drawFormattedTextFit(detailX + 20, top + imageH - 18, detailW - 40, rgb(145, 160, 158), bg,
                          "use %s  body %+d  dose %+d  attention %+d", itemUseKindText(item.use.kind),
                          item.use.healthDelta, item.use.exposureDelta, item.use.attentionDelta);
 
