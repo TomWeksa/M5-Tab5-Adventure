@@ -3192,11 +3192,41 @@ void drawMapScreen() {
     }
 }
 
-// Draws an item's stat deltas in a compact six-stat row.
+// Appends one named stat delta to a compact item stat line.
+void appendStatDeltaText(char* buffer, size_t bufferSize, const char* name, int8_t value, bool includeZeroes) {
+    if (!includeZeroes && value == 0) {
+        return;
+    }
+    const size_t used = strlen(buffer);
+    if (used >= bufferSize - 1) {
+        return;
+    }
+    snprintf(buffer + used, bufferSize - used, "%s%s %+d", used == 0 ? "" : "  ", name, value);
+}
+
+// Draws an item's stat deltas with full names, keeping inventory rows readable.
 void drawStatDelta(const Item& item, int32_t x, int32_t y, int32_t maxWidth, uint16_t bg) {
     M5.Display.setFont(&fonts::Font2);
-    drawFormattedTextFit(x, y, maxWidth, rgb(160, 180, 180), bg, "G%+d T%+d S%+d H%+d F%+d X%+d", item.grit,
-                         item.tech, item.scan, item.ghost, item.filter, item.strain);
+    char stats[160] = "";
+    appendStatDeltaText(stats, sizeof(stats), "Grit", item.grit, false);
+    appendStatDeltaText(stats, sizeof(stats), "Tech", item.tech, false);
+    appendStatDeltaText(stats, sizeof(stats), "Scan", item.scan, false);
+    appendStatDeltaText(stats, sizeof(stats), "Ghost", item.ghost, false);
+    appendStatDeltaText(stats, sizeof(stats), "Filter", item.filter, false);
+    appendStatDeltaText(stats, sizeof(stats), "Strain", item.strain, false);
+    if (stats[0] == '\0') {
+        snprintf(stats, sizeof(stats), "No passive stat changes");
+    }
+    drawTextFit(stats, x, y, maxWidth, rgb(160, 180, 180), bg);
+}
+
+// Draws the full six-stat spread on item detail cards.
+void drawFullItemStats(const Item& item, int32_t x, int32_t y, int32_t maxWidth, uint16_t bg) {
+    M5.Display.setFont(&fonts::Font2);
+    drawFormattedTextFit(x, y, maxWidth, rgb(185, 205, 200), bg, "Grit %+d  Tech %+d  Scan %+d", item.grit,
+                         item.tech, item.scan);
+    drawFormattedTextFit(x, y + 22, maxWidth, rgb(185, 205, 200), bg, "Ghost %+d  Filter %+d  Strain %+d",
+                         item.ghost, item.filter, item.strain);
 }
 
 // Draws the common field-photo frame behind every item illustration.
@@ -3466,10 +3496,16 @@ void drawItemDetailScreen() {
     drawTextFit("Field Read", detailX + 20, top + 222, detailW - 40, rgb(125, 230, 205), bg);
     drawWrappedText(item.fieldRead, detailX + 20, top + 252, detailW - 40, 3, rgb(170, 188, 184), bg);
 
-    display.drawFastHLine(detailX + 18, top + imageH - 84, detailW - 36, rgb(55, 70, 70));
-    drawTextFit("Effects", detailX + 20, top + imageH - 62, 70, rgb(210, 220, 215), bg);
-    drawStatDelta(item, detailX + 96, top + imageH - 62, detailW - 132, bg);
-    drawFormattedTextFit(detailX + 20, top + imageH - 36, detailW - 40, rgb(145, 160, 158), bg,
+    display.drawFastHLine(detailX + 18, top + 334, detailW - 36, rgb(55, 70, 70));
+    drawTextFit("How Stats Matter", detailX + 20, top + 354, detailW - 40, rgb(125, 230, 205), bg);
+    drawWrappedText(
+        "Grit: force, Explore, and injury. Tech: Observe, doors, devices, contacts. Scan: anomalies, trails, hidden leads. Ghost: contacts, trails, and heat. Filter: exposure, caches, anomalies. Strain: weird power that raises dose risk.",
+        detailX + 20, top + 384, detailW - 40, 3, rgb(170, 188, 184), bg);
+
+    display.drawFastHLine(detailX + 18, top + imageH - 118, detailW - 36, rgb(55, 70, 70));
+    drawTextFit("Effects", detailX + 20, top + imageH - 96, detailW - 40, rgb(210, 220, 215), bg);
+    drawFullItemStats(item, detailX + 20, top + imageH - 70, detailW - 40, bg);
+    drawFormattedTextFit(detailX + 20, top + imageH - 24, detailW - 40, rgb(145, 160, 158), bg,
                          "use %s  body %+d  dose %+d  attention %+d", itemUseKindText(item.use.kind),
                          item.use.healthDelta, item.use.exposureDelta, item.use.attentionDelta);
 
