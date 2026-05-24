@@ -3990,16 +3990,19 @@ void drawItemDetailScreen() {
     if (itemTextPage > maxTextPage) {
         itemTextPage = maxTextPage;
     }
+    const bool textNeedsPaging = maxTextPage > 0;
 
     display.drawFastHLine(detailX + 18, top + 88, detailW - 36, rgb(55, 70, 70));
     display.setFont(&fonts::Font2);
-    drawTextFit("Description", readX, readTitleY, readW - 250, rgb(125, 230, 205), bg);
-    drawFormattedTextFit(detailX + detailW - 260, readTitleY + 4, 72, rgb(150, 168, 170), bg, "%u/%u",
-                         static_cast<unsigned>(itemTextPage + 1), static_cast<unsigned>(maxTextPage + 1));
-    addButton("Prev", detailX + detailW - 176, readTitleY - 6, 76, 36, UiAction::ItemTextPrev, 0, item.color,
-              itemTextPage > 0);
-    addButton("Next", detailX + detailW - 92, readTitleY - 6, 72, 36, UiAction::ItemTextNext, 0, item.color,
-              itemTextPage < maxTextPage);
+    drawTextFit("Description", readX, readTitleY, textNeedsPaging ? readW - 250 : readW, rgb(125, 230, 205), bg);
+    if (textNeedsPaging) {
+        drawFormattedTextFit(detailX + detailW - 260, readTitleY + 4, 72, rgb(150, 168, 170), bg, "%u/%u",
+                             static_cast<unsigned>(itemTextPage + 1), static_cast<unsigned>(maxTextPage + 1));
+        addButton("Prev", detailX + detailW - 176, readTitleY - 6, 76, 36, UiAction::ItemTextPrev, 0, item.color,
+                  itemTextPage > 0);
+        addButton("Next", detailX + detailW - 92, readTitleY - 6, 72, 36, UiAction::ItemTextNext, 0, item.color,
+                  itemTextPage < maxTextPage);
+    }
     display.fillRoundRect(readX, readBoxY, readW, readBoxH, 6, readBg);
     display.drawRoundRect(readX, readBoxY, readW, readBoxH, 6, rgb(40, 58, 60));
     renderPagedWrappedText(readText, readX + 12, readBoxY + 10, readW - 24, readLines,
