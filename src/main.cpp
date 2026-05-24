@@ -252,6 +252,110 @@ uint8_t storyIndex(StoryArc arc) {
     return static_cast<uint8_t>(arc);
 }
 
+// Tracker labels frame story arcs as in-world rumours instead of menu quests.
+const char* storyTitle(StoryArc arc) {
+    switch (arc) {
+        case StoryArc::BatteriesForTheDead:
+            return "Batteries for the Dead";
+        case StoryArc::LastSaleAtB2:
+            return "The Last Sale at Level B2";
+        case StoryArc::PersonWhoNeverEntered:
+            return "The Person Who Never Entered";
+        case StoryArc::Count:
+            return "";
+    }
+    return "";
+}
+
+bool storyResolved(StoryArc arc) {
+    const uint8_t stage = storyStage[storyIndex(arc)];
+    switch (arc) {
+        case StoryArc::BatteriesForTheDead:
+        case StoryArc::LastSaleAtB2:
+            return stage >= 2;
+        case StoryArc::PersonWhoNeverEntered:
+            return stage >= 3;
+        case StoryArc::Count:
+            return false;
+    }
+    return false;
+}
+
+const char* storyStatusLabel(StoryArc arc) {
+    const uint8_t stage = storyStage[storyIndex(arc)];
+    if (storyResolved(arc)) {
+        return "resolved";
+    }
+    if (stage > 0) {
+        return "active";
+    }
+    return "quiet";
+}
+
+const char* storyLeadText(StoryArc arc) {
+    const uint8_t stage = storyStage[storyIndex(arc)];
+    const uint8_t outcome = storyOutcome[storyIndex(arc)];
+    switch (arc) {
+        case StoryArc::BatteriesForTheDead:
+            if (stage == 0) {
+                return "Relay Grave has cabinets that answer when the power is fresh.";
+            }
+            if (stage == 1) {
+                return "Sister Clamp wants power for Station Mercy. Follow a Relay Door or Anomaly, or sell the tuned frequency through a Spillway Contact.";
+            }
+            if (outcome == 2) {
+                return "Station Mercy was silenced. Relay Grave is quieter, and Sister Clamp will remember that kind of mercy.";
+            }
+            if (outcome == 3) {
+                return "The frequency was sold. Spillway traders profit from last words while Relay heat climbs.";
+            }
+            if (outcome == 4) {
+                return "One voice lives in the kit now. It says it is not lonely too quickly.";
+            }
+            return "The Choir was preserved. Relay observations sometimes feel like directions from the dead.";
+        case StoryArc::LastSaleAtB2:
+            if (stage == 0) {
+                return "The Sunken Mall PA still knows customer accounts below the waterline.";
+            }
+            if (stage == 1) {
+                return "The PA has reserved something on Level B2. Follow a Mall Door, Cache, or Anomaly lead.";
+            }
+            if (outcome == 4) {
+                return "The Manager Below was shut down. The Mall is quieter, freer, and less predictable.";
+            }
+            if (outcome == 3) {
+                return "The Manager Below was fed. Mall caches improve, but hunger now has rules.";
+            }
+            if (outcome == 2) {
+                return "A memory paid the bill. The speakers own a warm voice now.";
+            }
+            return "Hessa's family got medicine without feeding the PA. The Mall remembers a clean sale.";
+        case StoryArc::PersonWhoNeverEntered:
+            if (stage == 0) {
+                return "High-Ghost kit may leave a clinic receipt with the wrong boots under it.";
+            }
+            if (stage == 1) {
+                return "Someone with your face paid the clinic. Ask around the Neon Spillway camera market.";
+            }
+            if (stage == 2) {
+                return "Mink says your face has traffic. Follow the impossible trail into Black Reed Verge.";
+            }
+            if (outcome == 1) {
+                return "The Other Runner bargains from the margins. Sometimes your shadow pays the clinic.";
+            }
+            if (outcome == 2) {
+                return "Identities were traded. The debt lightens, but some contacts know the wrong you.";
+            }
+            if (outcome == 3) {
+                return "The duplicate was sold. Spillway heat will grow wherever your face circulates.";
+            }
+            return "The Other Runner was erased. Cameras remember less, and so do a few useful people.";
+        case StoryArc::Count:
+            return "";
+    }
+    return "";
+}
+
 // Removes an item from the pack and clears any equipment/trade references.
 void removeInventorySlot(uint8_t invSlot) {
     if (invSlot >= kInventoryCapacity) {
@@ -2640,6 +2744,10 @@ void handleAction(UiAction action, int16_t param) {
             currentScreen = Screen::Map;
             screenDirty = true;
             break;
+        case UiAction::Tracker:
+            currentScreen = Screen::Tracker;
+            screenDirty = true;
+            break;
         case UiAction::SelectSite:
             if (param >= 0 && param < static_cast<int16_t>(kSiteCount)) {
                 selectedMapSite = static_cast<uint8_t>(param);
@@ -2771,7 +2879,7 @@ void drawFieldScreen() {
 
     const int32_t buttonY = height - bottomH;
     const int32_t gap = 10;
-    const int32_t buttonW = (width - gap * 7) / 6;
+    const int32_t buttonW = (width - gap * 8) / 7;
     if (currentSite == 0) {
         addButton("Trade", gap, buttonY + 8, buttonW, 52, UiAction::OpenTrade, 0, rgb(90, 210, 220),
                   tradeAvailableHere());
@@ -2787,7 +2895,8 @@ void drawFieldScreen() {
               rgb(220, 90, 190), fieldActionAvailable(UiAction::FollowLead));
     addButton("Kit", gap * 4 + buttonW * 3, buttonY + 8, buttonW, 52, UiAction::Inventory, 0, rgb(170, 120, 240));
     addButton("Map", gap * 5 + buttonW * 4, buttonY + 8, buttonW, 52, UiAction::Map, 0, rgb(120, 220, 120));
-    addButton(currentSite == 0 ? "Rest" : "Retreat", gap * 6 + buttonW * 5, buttonY + 8, buttonW, 52, UiAction::Rest,
+    addButton("Leads", gap * 6 + buttonW * 5, buttonY + 8, buttonW, 52, UiAction::Tracker, 0, rgb(130, 230, 200));
+    addButton(currentSite == 0 ? "Rest" : "Retreat", gap * 7 + buttonW * 6, buttonY + 8, buttonW, 52, UiAction::Rest,
               0, rgb(230, 90, 95));
 
     for (uint8_t i = 0; i < buttonCount; ++i) {
@@ -3752,6 +3861,74 @@ void drawTradeScreen() {
     }
 }
 
+// Draws the in-world rumour board that tracks side-story progress.
+void drawTrackerScreen() {
+    auto& display = M5.Display;
+    clearButtons();
+    display.fillScreen(rgb(3, 6, 9));
+    drawHeader();
+
+    const int32_t width = display.width();
+    const int32_t height = display.height();
+    const int32_t margin = 18;
+    const int32_t top = 82;
+    const int32_t bottomH = 72;
+    const int32_t contentH = height - top - bottomH - margin;
+    const uint16_t bg = rgb(8, 12, 17);
+
+    uint8_t activeCount = 0;
+    uint8_t resolvedCount = 0;
+    for (uint8_t i = 0; i < static_cast<uint8_t>(StoryArc::Count); ++i) {
+        const StoryArc arc = static_cast<StoryArc>(i);
+        if (storyResolved(arc)) {
+            ++resolvedCount;
+        } else if (storyStage[i] > 0) {
+            ++activeCount;
+        }
+    }
+
+    drawPanel(margin, top, width - margin * 2, contentH, rgb(130, 230, 200));
+    display.setFont(&fonts::Font4);
+    drawTextFit("Rumour Board", margin + 18, top + 16, width - margin * 2 - 36, TFT_WHITE, bg);
+    display.setFont(&fonts::Font2);
+    drawFormattedTextFit(margin + 20, top + 54, width - margin * 2 - 40, rgb(160, 180, 178), bg,
+                         "active %u  resolved %u  quiet %u", activeCount, resolvedCount,
+                         static_cast<unsigned>(static_cast<uint8_t>(StoryArc::Count) - activeCount - resolvedCount));
+
+    const int32_t cardGap = 14;
+    const int32_t cardH = (contentH - 98 - cardGap * 2) / 3;
+    const int32_t cardX = margin + 16;
+    const int32_t cardW = width - margin * 2 - 32;
+    const int32_t cardTop = top + 86;
+    for (uint8_t i = 0; i < static_cast<uint8_t>(StoryArc::Count); ++i) {
+        const StoryArc arc = static_cast<StoryArc>(i);
+        const int32_t y = cardTop + i * (cardH + cardGap);
+        const bool resolved = storyResolved(arc);
+        const bool active = storyStage[i] > 0 && !resolved;
+        const uint16_t accent = resolved ? rgb(120, 220, 160) : active ? rgb(230, 180, 70) : rgb(72, 92, 104);
+        const uint16_t cardBg = active ? rgb(14, 20, 24) : bg;
+
+        display.fillRoundRect(cardX, y, cardW, cardH, 6, cardBg);
+        display.drawRoundRect(cardX, y, cardW, cardH, 6, accent);
+        display.fillRect(cardX + 12, y + 14, 8, cardH - 28, accent);
+
+        display.setFont(&fonts::Font4);
+        drawTextFit(storyTitle(arc), cardX + 32, y + 12, cardW - 180, TFT_WHITE, cardBg);
+        display.setFont(&fonts::Font2);
+        drawTextFit(storyStatusLabel(arc), cardX + cardW - 126, y + 18, 96, accent, cardBg);
+        drawWrappedText(storyLeadText(arc), cardX + 32, y + 50, cardW - 64, 3, rgb(178, 198, 194), cardBg);
+    }
+
+    const int32_t buttonY = height - bottomH;
+    addButton("Field", margin, buttonY + 8, 160, 52, UiAction::BackToField, 0, rgb(90, 210, 220));
+    addButton("Map", margin + 174, buttonY + 8, 150, 52, UiAction::Map, 0, rgb(120, 220, 120));
+    addButton("Kit", margin + 338, buttonY + 8, 150, 52, UiAction::Inventory, 0, rgb(170, 120, 240));
+
+    for (uint8_t i = 0; i < buttonCount; ++i) {
+        drawButton(buttons[i]);
+    }
+}
+
 // Routes the dirty-screen redraw to the active screen renderer.
 void drawCurrentScreen() {
     switch (currentScreen) {
@@ -3769,6 +3946,9 @@ void drawCurrentScreen() {
             break;
         case Screen::Trade:
             drawTradeScreen();
+            break;
+        case Screen::Tracker:
+            drawTrackerScreen();
             break;
         case Screen::Field:
             drawFieldScreen();

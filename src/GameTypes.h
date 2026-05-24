@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-// Screens are the four primary modes the touch UI can render.
+// Screens are the primary modes the touch UI can render.
 enum class Screen : uint8_t {
     Field,
     Inventory,
@@ -10,6 +10,7 @@ enum class Screen : uint8_t {
     Map,
     Reward,
     Trade,
+    Tracker,
 };
 
 // Slots describe broad item categories and also drive equipment placement.
@@ -66,6 +67,7 @@ enum class UiAction : uint8_t {
     FollowLead,
     Inventory,
     Map,
+    Tracker,
     SelectSite,
     BackToField,
     InspectItem,
