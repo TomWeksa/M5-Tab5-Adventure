@@ -116,6 +116,10 @@ uint16_t day = 1;
 uint8_t currentSite = 0;
 uint8_t selectedMapSite = 1;
 int16_t selectedInventorySlot = 0;
+UiAction selectedActionDetail = UiAction::Observe;
+int8_t selectedDawnOffer = -1;
+uint8_t pinnedLeadSite = 255;
+LeadKind pinnedLead = LeadKind::None;
 uint8_t inventoryPage = 0;
 uint8_t itemTextPage = 0;
 uint8_t tradePage = 0;
@@ -166,6 +170,7 @@ StoryArc pendingStoryArc = StoryArc::Count;
 char statusLine[320] = "The rain tastes metallic. Your kit is the only thing between you and the quiet.";
 char rewardTitle[80] = "";
 char rewardSummary[320] = "";
+char rewardChanged[220] = "";
 char rewardNext[180] = "";
 char dialogueTitle[80] = "";
 char dialogueBody[360] = "";
@@ -178,6 +183,7 @@ const uint8_t tradeStock[kTradeStockCount] = {kBatteryCellItem,        kCleanWat
                                               kBlueMilkSachetItem};
 
 int16_t dailyUpkeepValue();
+void setStatus(const char* text);
 
 // Converts 8-bit RGB values to the display's 16-bit color format.
 uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
@@ -624,15 +630,15 @@ const char* leadVerb(LeadKind lead) {
 const char* leadCheckText(LeadKind lead) {
     switch (lead) {
         case LeadKind::Contact:
-            return "GHOST+TECH";
+            return "Ghost + Tech";
         case LeadKind::Cache:
-            return "GRIT+FILTER";
+            return "Grit + Filter";
         case LeadKind::Anomaly:
-            return "SCAN+FILTER";
+            return "Scan + Filter";
         case LeadKind::Door:
-            return "TECH+GRIT";
+            return "Tech + Grit";
         case LeadKind::Trail:
-            return "GHOST+SCAN";
+            return "Ghost + Scan";
         case LeadKind::None:
             return "--";
     }
@@ -1139,6 +1145,7 @@ void setDawnOffer(uint8_t index, DawnOfferKind kind, uint8_t site, LeadKind lead
 }
 
 void generateDawnOffers() {
+    selectedDawnOffer = -1;
     const uint8_t workSite = static_cast<uint8_t>(1 + ((day + 1) % (kSiteCount - 1)));
     char workHook[132];
     snprintf(workHook, sizeof(workHook), "%s needs a quiet supply run. Pay: trade goods and less doubt.",
@@ -1161,28 +1168,78 @@ void generateDawnOffers() {
     setDawnOffer(2, DawnOfferKind::Greed, greedSite, greedLead, greedItem, 1, "Bad Treasure", greedHook);
 }
 
+bool hasPinnedLead() {
+    return pinnedLeadSite > 0 && pinnedLeadSite < kSiteCount && pinnedLead != LeadKind::None;
+}
+
+void clearPinnedLead() {
+    pinnedLeadSite = 255;
+    pinnedLead = LeadKind::None;
+}
+
+void selectDawnOffer(int16_t index) {
+    if (index < 0 || index >= 3 || !dawnOffers[index].active) {
+        return;
+    }
+
+    selectedDawnOffer = static_cast<int8_t>(index);
+    const DawnOffer& offer = dawnOffers[index];
+    char message[180];
+    snprintf(message, sizeof(message), "You mark %s at %s as today's focus.",
+             dawnOfferKindName(offer.kind), sites[offer.site].name);
+    setStatus(message);
+}
+
+void pinCurrentLead() {
+    if (currentSite == 0 || siteLead[currentSite] == LeadKind::None) {
+        setStatus("There is no live lead here to pin.");
+        return;
+    }
+
+    pinnedLeadSite = currentSite;
+    pinnedLead = siteLead[currentSite];
+    siteAttention[currentSite] = clampInt(siteAttention[currentSite] + 1, 0, kMaxSiteAttention);
+    char message[180];
+    snprintf(message, sizeof(message), "You pin the %s at %s. It will survive one dawn, but the site notices.",
+             leadName(pinnedLead), sites[pinnedLeadSite].name);
+    setStatus(message);
+}
+
+void clearPinnedLeadWithStatus() {
+    if (!hasPinnedLead()) {
+        setStatus("No lead is pinned right now.");
+        return;
+    }
+
+    char message[160];
+    snprintf(message, sizeof(message), "You stop guarding the pinned %s at %s.",
+             leadName(pinnedLead), sites[pinnedLeadSite].name);
+    clearPinnedLead();
+    setStatus(message);
+}
+
 // Describes the stat check for the field action forecast panel.
 const char* actionCheckText(UiAction action) {
     switch (action) {
         case UiAction::Observe:
-            return "SCAN+TECH";
+            return "Scan + Tech";
         case UiAction::Explore:
-            return "GRIT+FILTER";
+            return "Grit + Filter";
         case UiAction::FollowLead:
             if ((siteLead[currentSite] == LeadKind::Contact || siteLead[currentSite] == LeadKind::Door) &&
                 equippedCatalogItem(kStaticKnifeItem)) {
-                return "GHOST+TECH";
+                return "Ghost + Tech";
             }
             if (siteLead[currentSite] == LeadKind::Door && equippedCatalogItem(kEmptyNameTagItem) &&
                 (currentSite == 1 || currentSite == 2)) {
-                return "GHOST+TECH";
+                return "Ghost + Tech";
             }
             if (siteLead[currentSite] == LeadKind::Contact && equippedCatalogItem(kDebtCollectorsCoatItem) &&
                 !debtCoatSpent) {
-                return "GRIT+GHOST";
+                return "Grit + Ghost";
             }
             if (siteLead[currentSite] == LeadKind::Door && equippedCatalogItem(kSolderRigItem)) {
-                return "TECH+SCAN";
+                return "Tech + Scan";
             }
             return leadCheckText(siteLead[currentSite]);
         default:
@@ -1543,6 +1600,7 @@ void clearReward() {
     rewardCount = 0;
     rewardTitle[0] = '\0';
     rewardSummary[0] = '\0';
+    rewardChanged[0] = '\0';
     rewardNext[0] = '\0';
 }
 
@@ -2065,17 +2123,24 @@ void drawDawnOfferCards(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t pan
     for (uint8_t i = 0; i < 3; ++i) {
         const DawnOffer& offer = dawnOffers[i];
         const int32_t cardY = cardTop + i * (cardH + gap);
-        const uint16_t accent = offer.active ? dawnOfferColor(offer.kind) : rgb(72, 82, 84);
-        const uint16_t cardBg = offer.active ? rgb(12, 18, 24) : rgb(12, 14, 16);
+        const bool selected = selectedDawnOffer == static_cast<int8_t>(i) && offer.active;
+        const uint16_t accent = selected ? TFT_WHITE : (offer.active ? dawnOfferColor(offer.kind) : rgb(72, 82, 84));
+        const uint16_t stripe = offer.active ? dawnOfferColor(offer.kind) : rgb(72, 82, 84);
+        const uint16_t cardBg = selected ? rgb(18, 30, 32) : (offer.active ? rgb(12, 18, 24) : rgb(12, 14, 16));
         display.fillRoundRect(x, cardY, w, cardH, 6, cardBg);
         display.drawRoundRect(x, cardY, w, cardH, 6, accent);
-        display.fillRect(x + 10, cardY + 10, 7, cardH - 20, accent);
-        drawFormattedTextFit(x + 26, cardY + 10, w - 52, offer.active ? TFT_WHITE : rgb(120, 126, 128), cardBg,
+        display.fillRect(x + 10, cardY + 10, 7, cardH - 20, stripe);
+        drawFormattedTextFit(x + 26, cardY + 10, w - (selected ? 126 : 52),
+                             offer.active ? TFT_WHITE : rgb(120, 126, 128), cardBg,
                              "%s: %s", dawnOfferKindName(offer.kind), offer.title);
+        if (selected) {
+            drawTextFit("FOCUS", x + w - 72, cardY + 10, 52, rgb(130, 230, 200), cardBg);
+        }
         drawFormattedTextFit(x + 26, cardY + 32, w - 52, rgb(150, 168, 170), cardBg, "%s / %s",
                              sites[offer.site].name, leadName(offer.lead));
         drawWrappedText(offer.active ? offer.hook : "Resolved. The board slot is quiet.", x + 26, cardY + 54, w - 52,
                         2, offer.active ? rgb(190, 208, 204) : rgb(110, 116, 118), cardBg);
+        addButton("", x, cardY, w, cardH, UiAction::SelectDawnOffer, i, stripe, offer.active, false);
     }
 }
 
@@ -2124,7 +2189,7 @@ void drawActionForecast(int32_t x, int32_t y, int32_t w, int32_t h) {
         drawFormattedTextFit(x + 116, rowY + 8, w - 142, enabled ? rgb(180, 210, 205) : rgb(95, 100, 102), rowBg,
                              "%s %d/%d", actionCheckText(action), skill, target);
         drawFormattedTextFit(x + 26, rowY + 30, w - 52, enabled ? rgb(180, 210, 205) : rgb(95, 100, 102), rowBg,
-                             "clean %u%%  safe %u%%  partial %u%%", cleanChance, safeChance, partialChance);
+                             "clean %u%%  safe %u%%  partial+ %u%%", cleanChance, safeChance, partialChance);
         drawFormattedTextFit(x + 26, rowY + 50, 132, enabled ? rgb(180, 210, 205) : rgb(95, 100, 102), rowBg,
                              "%uh  dose +%d",
                              static_cast<unsigned>(actionTimeCost(action) * kTickHours),
@@ -2133,6 +2198,8 @@ void drawActionForecast(int32_t x, int32_t y, int32_t w, int32_t h) {
                     enabled ? rgb(180, 210, 205) : rgb(95, 100, 102), rowBg);
         drawTextFit(abilityPreview[0] != '\0' ? abilityPreview : "No special kit interaction visible.", x + 26,
                     rowY + 68, w - 52, enabled ? rgb(150, 188, 184) : rgb(95, 100, 102), rowBg);
+        addButton("", x + 14, rowY, w - 28, 86, UiAction::OpenActionDetail, static_cast<int16_t>(action), border,
+                  true, false);
     }
 }
 
@@ -2244,23 +2311,29 @@ uint8_t actionAttentionGain(UiAction action, bool success) {
                                          kMaxSiteAttention));
 }
 
-int8_t matchingDawnOffer(UiAction action, LeadKind lead) {
-    for (uint8_t i = 0; i < 3; ++i) {
-        const DawnOffer& offer = dawnOffers[i];
-        if (!offer.active || offer.site != currentSite) {
-            continue;
-        }
-        if (action == UiAction::Observe && offer.kind == DawnOfferKind::Rumour) {
-            return static_cast<int8_t>(i);
-        }
-        if (action == UiAction::Explore && offer.kind != DawnOfferKind::Rumour) {
-            return static_cast<int8_t>(i);
-        }
-        if (action == UiAction::FollowLead && (offer.lead == lead || offer.lead == LeadKind::None)) {
-            return static_cast<int8_t>(i);
-        }
+bool dawnOfferMatchesAction(const DawnOffer& offer, UiAction action, LeadKind lead) {
+    if (!offer.active || offer.site != currentSite) {
+        return false;
     }
-    return -1;
+    if (action == UiAction::Observe) {
+        return offer.kind == DawnOfferKind::Rumour;
+    }
+    if (action == UiAction::Explore) {
+        return offer.kind != DawnOfferKind::Rumour;
+    }
+    if (action == UiAction::FollowLead) {
+        return offer.lead == lead || offer.lead == LeadKind::None;
+    }
+    return false;
+}
+
+int8_t matchingDawnOffer(UiAction action, LeadKind lead) {
+    if (selectedDawnOffer < 0 || selectedDawnOffer >= 3) {
+        return -1;
+    }
+
+    const DawnOffer& offer = dawnOffers[selectedDawnOffer];
+    return dawnOfferMatchesAction(offer, action, lead) ? selectedDawnOffer : -1;
 }
 
 void applyDawnOfferReward(UiAction action, OutcomeLevel outcome, LeadKind lead, char* message, size_t messageSize) {
@@ -2274,19 +2347,24 @@ void applyDawnOfferReward(UiAction action, OutcomeLevel outcome, LeadKind lead, 
 
     DawnOffer& offer = dawnOffers[match];
     offer.active = false;
+    selectedDawnOffer = -1;
     if (offer.kind == DawnOfferKind::Work) {
         grantTradeGoods(3);
         appendAbilityNote(message, messageSize, "Dawn offer paid: the clinic board job adds trade goods.");
+        appendAbilityNote(rewardChanged, sizeof(rewardChanged), "Focus paid in trade goods.");
     } else if (offer.kind == DawnOfferKind::Rumour) {
         siteIntel[currentSite] = clampInt(siteIntel[currentSite] + 1, 0, kMaxSiteIntel);
         appendAbilityNote(message, messageSize, "Dawn rumour sharpened: site intel rises and the board quiets.");
+        appendAbilityNote(rewardChanged, sizeof(rewardChanged), "Focus became site intel.");
     } else {
         if (outcome == OutcomeLevel::Full || outcome == OutcomeLevel::Success) {
             grantRewardItem(offer.rewardBiasItem);
             appendAbilityNote(message, messageSize, "Greed paid off: the hinted oddity is in your pack.");
+            appendAbilityNote(rewardChanged, sizeof(rewardChanged), "Focus paid with the hinted oddity.");
         } else {
             grantTradeGoods(2);
             appendAbilityNote(message, messageSize, "Greed half-paid: you recover value, not the promised miracle.");
+            appendAbilityNote(rewardChanged, sizeof(rewardChanged), "Focus paid in fragments instead of a miracle.");
         }
         siteAttention[currentSite] = clampInt(siteAttention[currentSite] + 1 + offer.riskDelta, 0, kMaxSiteAttention);
     }
@@ -2338,16 +2416,23 @@ void setRewardNextMoveForAction(UiAction action, OutcomeLevel outcome, LeadKind 
     }
 }
 
-// Lowers attention, fades intel, clears leads, and slowly restocks sites overnight.
-void coolSitesForNewDay() {
+// Lowers attention, fades intel, clears most leads, and slowly restocks sites overnight.
+bool coolSitesForNewDay() {
+    bool preservedPinnedLead = false;
     for (uint8_t i = 1; i < kSiteCount; ++i) {
         siteAttention[i] = siteAttention[i] > 2 ? static_cast<uint8_t>(siteAttention[i] - 2) : 0;
         siteIntel[i] = siteIntel[i] > 0 ? static_cast<uint8_t>(siteIntel[i] - 1) : 0;
-        siteLead[i] = LeadKind::None;
+        if (hasPinnedLead() && i == pinnedLeadSite) {
+            siteLead[i] = pinnedLead;
+            preservedPinnedLead = true;
+        } else {
+            siteLead[i] = LeadKind::None;
+        }
         if (siteCache[i] < sites[i].maxCache) {
             ++siteCache[i];
         }
     }
+    return preservedPinnedLead;
 }
 
 int16_t dailyUpkeepValue() {
@@ -2384,7 +2469,9 @@ void startNewDay(const char* lead) {
     ++day;
     timeTick = 0;
     currentSite = 0;
-    coolSitesForNewDay();
+    const uint8_t dawnPinnedSite = pinnedLeadSite;
+    const LeadKind dawnPinnedLead = pinnedLead;
+    const bool keptPinnedLead = coolSitesForNewDay();
     warmBatterySpent = false;
     railPistolSpent = false;
     quietNailgunSpent = false;
@@ -2434,6 +2521,13 @@ void startNewDay(const char* lead) {
 
     char message[320];
     snprintf(message, sizeof(message), "%s %s", lead, bill);
+    if (keptPinnedLead) {
+        char pinNote[140];
+        snprintf(pinNote, sizeof(pinNote), "Pinned lead survives: %s at %s.",
+                 leadName(dawnPinnedLead), sites[dawnPinnedSite].name);
+        appendAbilityNote(message, sizeof(message), pinNote);
+        clearPinnedLead();
+    }
     if (equippedCatalogItem(kAshfallPonchoItem) && random(0, 100) < 30) {
         for (uint8_t i = 1; i < kSiteCount; ++i) {
             if (siteIntel[i] > 0) {
@@ -2516,7 +2610,9 @@ void checkCollapse() {
 
     currentSite = 0;
     timeTick = 0;
-    coolSitesForNewDay();
+    if (coolSitesForNewDay()) {
+        clearPinnedLead();
+    }
     day += 1;
     health = 5;
     exposure = 3;
@@ -2640,6 +2736,7 @@ void completeStoryDecision(uint8_t choice) {
 
     snprintf(rewardTitle, sizeof(rewardTitle), "%s", storyTitle(arc));
     snprintf(rewardSummary, sizeof(rewardSummary), "%s", message);
+    snprintf(rewardChanged, sizeof(rewardChanged), "Changed: rumour outcome recorded; site pressure and future routes shifted.");
     snprintf(rewardNext, sizeof(rewardNext), "Suggested next: check the rumour board; the city's consequences have changed.");
     setStatus(message);
     currentScreen = Screen::Reward;
@@ -2729,6 +2826,7 @@ void resolveFieldAction(UiAction action) {
 
     clearReward();
     const Stats stats = deriveStats();
+    const uint8_t actionSite = currentSite;
     const Site& site = sites[currentSite];
     const LeadKind lead = siteLead[currentSite];
     char actionTitle[24];
@@ -3140,6 +3238,13 @@ void resolveFieldAction(UiAction action) {
     if (blueMilkBlurReady) {
         blueMilkBlurReady = false;
     }
+    if (hasPinnedLead() && pinnedLeadSite == actionSite && siteLead[actionSite] != pinnedLead) {
+        clearPinnedLead();
+    }
+    snprintf(rewardChanged, sizeof(rewardChanged),
+             "Changed: %s at %s; time -%uh, exposure +%d, attention +%u.",
+             outcomeName(outcome), site.name, static_cast<unsigned>(spentTicks * kTickHours), ambientDose,
+             static_cast<unsigned>(attentionGain));
     pendingStoryArc = StoryArc::Count;
     advanceStoryArcs(action, outcome, lead, message, sizeof(message));
     applyDawnOfferReward(action, outcome, lead, message, sizeof(message));
@@ -3277,6 +3382,7 @@ void completeTrade() {
     snprintf(rewardTitle, sizeof(rewardTitle), "Trade Complete");
     snprintf(rewardSummary, sizeof(rewardSummary), "You traded goods worth %d for goods worth %d. No one gives change.",
              offer, ask);
+    snprintf(rewardChanged, sizeof(rewardChanged), "Changed: pack contents and available trade value were recalculated.");
     snprintf(rewardNext, sizeof(rewardNext), "Suggested next: inspect the new goods, then choose a route that uses them.");
     setStatus(rewardSummary);
     resetTradeSelections();
@@ -3307,6 +3413,23 @@ void handleAction(UiAction action, int16_t param) {
             break;
         case UiAction::ChooseStory:
             completeStoryDecision(static_cast<uint8_t>(param));
+            break;
+        case UiAction::OpenActionDetail:
+            selectedActionDetail = static_cast<UiAction>(param);
+            currentScreen = Screen::ActionDetail;
+            screenDirty = true;
+            break;
+        case UiAction::SelectDawnOffer:
+            selectDawnOffer(param);
+            screenDirty = true;
+            break;
+        case UiAction::PinLead:
+            pinCurrentLead();
+            screenDirty = true;
+            break;
+        case UiAction::ClearPinnedLead:
+            clearPinnedLeadWithStatus();
+            screenDirty = true;
             break;
         case UiAction::SelectSite:
             if (param >= 0 && param < static_cast<int16_t>(kSiteCount)) {
@@ -3472,6 +3595,155 @@ void drawFieldScreen() {
     addButton("Leads", gap * 6 + buttonW * 5, buttonY + 8, buttonW, 52, UiAction::Tracker, 0, rgb(130, 230, 200));
     addButton(currentSite == 0 ? "Rest" : "Retreat", gap * 7 + buttonW * 6, buttonY + 8, buttonW, 52, UiAction::Rest,
               0, rgb(230, 90, 95));
+
+    for (uint8_t i = 0; i < buttonCount; ++i) {
+        drawButton(buttons[i]);
+    }
+}
+
+void drawChanceBar(int32_t x, int32_t y, int32_t w, const char* label, uint8_t value, uint16_t color,
+                   uint16_t bg) {
+    auto& display = M5.Display;
+    const uint16_t rail = rgb(38, 46, 50);
+    const int32_t fillW = (w - 4) * clampInt(value, 0, 100) / 100;
+
+    display.setFont(&fonts::Font2);
+    drawTextFit(label, x, y, w - 54, rgb(180, 198, 194), bg);
+    drawFormattedTextFit(x + w - 50, y, 48, rgb(180, 198, 194), bg, "%u%%", static_cast<unsigned>(value));
+    display.fillRect(x, y + 22, w, 14, bg);
+    display.drawRect(x, y + 22, w, 14, rail);
+    display.fillRect(x + 2, y + 24, fillW, 10, color);
+}
+
+// Draws the expanded action read opened from the compact field forecast rows.
+void drawActionDetailScreen() {
+    if (currentSite == 0) {
+        currentScreen = Screen::Field;
+        drawFieldScreen();
+        return;
+    }
+
+    auto& display = M5.Display;
+    clearButtons();
+    display.fillScreen(rgb(3, 6, 9));
+    drawHeader();
+
+    UiAction action = selectedActionDetail;
+    if (action != UiAction::Observe && action != UiAction::Explore && action != UiAction::FollowLead) {
+        action = UiAction::Observe;
+    }
+
+    const Stats stats = deriveStats();
+    const LeadKind lead = siteLead[currentSite];
+    const int16_t skill = actionSkill(action, stats);
+    const int16_t target = actionTarget(action);
+    const uint8_t cleanChance = chanceForThreshold(skill, target + 3);
+    const uint8_t safeChance = chanceForThreshold(skill, target);
+    const uint8_t partialChance = chanceForThreshold(skill, target - 2);
+    const uint8_t failChance = static_cast<uint8_t>(100 - partialChance);
+    const int16_t dose = actionExposureCost(action, stats);
+    const bool enabled = fieldActionAvailable(action);
+    const uint16_t bg = rgb(8, 12, 17);
+    const uint16_t accent = enabled ? sites[currentSite].color : rgb(90, 90, 98);
+
+    const int32_t width = display.width();
+    const int32_t height = display.height();
+    const int32_t margin = 18;
+    const int32_t top = 82;
+    const int32_t bottomH = 72;
+    const int32_t panelH = height - top - bottomH - margin;
+    const int32_t innerX = margin + 20;
+    const int32_t innerW = width - margin * 2 - 40;
+    const int32_t detailTop = top + 100;
+    const int32_t gap = 20;
+    const int32_t leftW = 370;
+    const int32_t rightX = innerX + leftW + gap;
+    const int32_t rightW = innerW - leftW - gap;
+
+    drawPanel(margin, top, width - margin * 2, panelH, accent);
+    display.setFont(&fonts::Font4);
+    drawFormattedTextFit(innerX, top + 16, innerW, TFT_WHITE, bg, "%s at %s", actionLabel(action),
+                         sites[currentSite].name);
+    display.setFont(&fonts::Font2);
+    drawFormattedTextFit(innerX, top + 52, innerW, enabled ? rgb(178, 198, 194) : rgb(210, 130, 130), bg,
+                         enabled ? "%s against target %d" : "Blocked: %s", enabled ? actionCheckText(action)
+                                                                                   : actionBlockedText(action),
+                         target);
+    display.drawFastHLine(innerX, top + 82, innerW, rgb(55, 70, 70));
+
+    display.fillRoundRect(innerX, detailTop, leftW, 346, 6, rgb(12, 18, 24));
+    display.drawRoundRect(innerX, detailTop, leftW, 346, 6, accent);
+    display.setFont(&fonts::Font4);
+    drawTextFit("Commitment Read", innerX + 16, detailTop + 14, leftW - 32, rgb(130, 230, 200), rgb(12, 18, 24));
+    display.setFont(&fonts::Font2);
+    drawFormattedTextFit(innerX + 18, detailTop + 54, leftW - 36, rgb(190, 208, 204), rgb(12, 18, 24),
+                         "Check: %s", actionCheckText(action));
+    drawFormattedTextFit(innerX + 18, detailTop + 78, leftW - 36, rgb(190, 208, 204), rgb(12, 18, 24),
+                         "Skill %d vs target %d", skill, target);
+    drawFormattedTextFit(innerX + 18, detailTop + 102, leftW - 36, rgb(150, 168, 170), rgb(12, 18, 24),
+                         "Time %uh   exposure +%d", static_cast<unsigned>(actionTimeCost(action) * kTickHours),
+                         dose);
+    drawFormattedTextFit(innerX + 18, detailTop + 126, leftW - 36, rgb(150, 168, 170), rgb(12, 18, 24),
+                         "Payoff: %s", enabled ? actionPayoffText(action) : actionBlockedText(action));
+
+    drawChanceBar(innerX + 18, detailTop + 164, leftW - 36, "Clean", cleanChance, rgb(120, 220, 160),
+                  rgb(12, 18, 24));
+    drawChanceBar(innerX + 18, detailTop + 210, leftW - 36, "Safe", safeChance, rgb(90, 210, 220),
+                  rgb(12, 18, 24));
+    drawChanceBar(innerX + 18, detailTop + 256, leftW - 36, "Partial+", partialChance, rgb(230, 180, 70),
+                  rgb(12, 18, 24));
+    drawChanceBar(innerX + 18, detailTop + 302, leftW - 36, "Failure", failChance, rgb(230, 90, 95),
+                  rgb(12, 18, 24));
+
+    char synopsis[300];
+    buildAreaPressureSynopsis(synopsis, sizeof(synopsis));
+    char abilityPreview[260];
+    describeActionAbilities(action, lead, abilityPreview, sizeof(abilityPreview));
+    char targetRead[260];
+    snprintf(targetRead, sizeof(targetRead),
+             "Target starts from the site's live risk: base danger, attention, intel, and dusk pressure. This action then adds its own shape before kit effects settle the number.");
+    char focusRead[240];
+    if (selectedDawnOffer >= 0 && selectedDawnOffer < 3 && dawnOffers[selectedDawnOffer].active) {
+        const DawnOffer& offer = dawnOffers[selectedDawnOffer];
+        snprintf(focusRead, sizeof(focusRead), "%s focus: %s at %s. %s",
+                 dawnOfferMatchesAction(offer, action, lead) ? "Matched" : "Selected",
+                 offer.title, sites[offer.site].name,
+                 dawnOfferMatchesAction(offer, action, lead) ? "Success here can pay the board."
+                                                             : "This action will not pay it yet.");
+    } else {
+        snprintf(focusRead, sizeof(focusRead), "No dawn focus marked. Board rewards wait until you choose one at the clinic.");
+    }
+
+    display.fillRoundRect(rightX, detailTop, rightW, 346, 6, rgb(12, 18, 24));
+    display.drawRoundRect(rightX, detailTop, rightW, 346, 6, rgb(90, 210, 220));
+    display.setFont(&fonts::Font4);
+    drawTextFit("Why It Looks This Way", rightX + 16, detailTop + 14, rightW - 32, rgb(130, 230, 200),
+                rgb(12, 18, 24));
+    display.setFont(&fonts::Font2);
+    drawWrappedText(synopsis, rightX + 18, detailTop + 54, rightW - 36, 3, rgb(190, 208, 204), rgb(12, 18, 24));
+    drawWrappedText(targetRead, rightX + 18, detailTop + 128, rightW - 36, 3, rgb(150, 168, 170), rgb(12, 18, 24));
+    drawWrappedText(abilityPreview[0] != '\0' ? abilityPreview : "No special kit interaction is visible for this move.",
+                    rightX + 18, detailTop + 202, rightW - 36, 3, rgb(190, 208, 204), rgb(12, 18, 24));
+    drawWrappedText(focusRead, rightX + 18, detailTop + 276, rightW - 36, 2, rgb(230, 180, 70), rgb(12, 18, 24));
+
+    const int32_t leadY = detailTop + 350;
+    display.fillRoundRect(innerX, leadY, innerW, 72, 6, rgb(12, 18, 24));
+    display.drawRoundRect(innerX, leadY, innerW, 72, 6, rgb(220, 90, 190));
+    drawFormattedTextFit(innerX + 18, leadY + 14, innerW - 36, rgb(190, 208, 204), rgb(12, 18, 24),
+                         "Current lead: %s", leadName(lead));
+    drawWrappedText(leadWhisper(lead), innerX + 18, leadY + 38, innerW - 36, 1, rgb(150, 168, 170),
+                    rgb(12, 18, 24));
+
+    const int32_t buttonY = height - bottomH;
+    addButton("Field", margin, buttonY + 8, 150, 52, UiAction::BackToField, 0, rgb(90, 210, 220));
+    addButton("Kit", margin + 164, buttonY + 8, 140, 52, UiAction::Inventory, 0, rgb(170, 120, 240));
+    const bool canPin = currentSite != 0 && lead != LeadKind::None;
+    const bool currentPin = hasPinnedLead() && pinnedLeadSite == currentSite && pinnedLead == lead;
+    addButton(currentPin ? "Clear Pin" : "Pin Lead", margin + 318, buttonY + 8, 160, 52,
+              currentPin ? UiAction::ClearPinnedLead : UiAction::PinLead, 0, rgb(220, 90, 190), canPin || currentPin);
+    char executeLabel[32];
+    snprintf(executeLabel, sizeof(executeLabel), "%s Now", actionLabel(action));
+    addButton(executeLabel, width - margin - 230, buttonY + 8, 230, 52, action, 0, accent, enabled);
 
     for (uint8_t i = 0; i < buttonCount; ++i) {
         drawButton(buttons[i]);
@@ -4392,10 +4664,13 @@ void drawRewardScreen() {
     display.setFont(&fonts::Font4);
     drawTextFit(rewardTitle[0] == '\0' ? "Action Complete" : rewardTitle, margin + 18, top + 16, width - 72,
                 TFT_WHITE, bg);
-    drawWrappedText(rewardSummary[0] == '\0' ? statusLine : rewardSummary, margin + 20, top + 58, width - 76, 4,
+    drawWrappedText(rewardSummary[0] == '\0' ? statusLine : rewardSummary, margin + 20, top + 58, width - 76, 3,
                     rgb(210, 222, 214), bg);
+    if (rewardChanged[0] != '\0') {
+        drawWrappedText(rewardChanged, margin + 20, top + 122, width - 76, 1, rgb(230, 180, 70), bg);
+    }
     if (rewardNext[0] != '\0') {
-        drawWrappedText(rewardNext, margin + 20, top + 144, width - 76, 2, rgb(130, 230, 200), bg);
+        drawWrappedText(rewardNext, margin + 20, top + 148, width - 76, 2, rgb(130, 230, 200), bg);
     }
 
     display.setFont(&fonts::Font4);
@@ -4412,7 +4687,7 @@ void drawRewardScreen() {
         const int32_t col = i % 4;
         const int32_t row = i / 4;
         const int32_t cardX = margin + 20 + col * (cardW + 12);
-        const int32_t cardY = top + 234 + row * 112;
+        const int32_t cardY = top + 230 + row * 112;
         display.fillRoundRect(cardX, cardY, cardW, 96, 6, rgb(12, 18, 22));
         display.drawRoundRect(cardX, cardY, cardW, 96, 6, item.color);
         drawMiniItemIcon(item, cardX + 12, cardY + 16, 56, false);
@@ -4719,6 +4994,9 @@ void drawCurrentScreen() {
         case Screen::Dialogue:
             drawDialogueScreen();
             break;
+        case Screen::ActionDetail:
+            drawActionDetailScreen();
+            break;
         case Screen::Field:
             drawFieldScreen();
             break;
@@ -4742,6 +5020,9 @@ void initializeColors() {
 // Seeds the starting game state, inventory, equipment, and site caches.
 void initializeGame() {
     itemTextPage = 0;
+    selectedActionDetail = UiAction::Observe;
+    selectedDawnOffer = -1;
+    clearPinnedLead();
     warmBatterySpent = false;
     railPistolSpent = false;
     quietNailgunSpent = false;
