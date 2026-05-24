@@ -8,6 +8,7 @@ namespace {
 enum class Screen : uint8_t {
     Field,
     Inventory,
+    ItemDetail,
     Map,
 };
 
@@ -38,6 +39,7 @@ enum class UiAction : uint8_t {
     Map,
     SelectSite,
     BackToField,
+    InspectItem,
     EquipOrUse,
     Travel,
     Rest,
@@ -123,6 +125,7 @@ int16_t scrap = 8;
 uint16_t day = 1;
 uint8_t currentSite = 0;
 uint8_t selectedMapSite = 1;
+int16_t selectedInventorySlot = 0;
 uint8_t timeTick = 0;
 uint8_t siteHeat[kSiteCapacity];
 uint8_t siteCache[kSiteCapacity];
@@ -1254,8 +1257,18 @@ void handleAction(UiAction action, int16_t param) {
             currentScreen = Screen::Field;
             screenDirty = true;
             break;
+        case UiAction::InspectItem:
+            if (validInventorySlot(param)) {
+                selectedInventorySlot = param;
+                currentScreen = Screen::ItemDetail;
+                screenDirty = true;
+            }
+            break;
         case UiAction::EquipOrUse:
             equipInventorySlot(static_cast<uint8_t>(param));
+            if (!validInventorySlot(param)) {
+                currentScreen = Screen::Inventory;
+            }
             break;
         case UiAction::Travel:
             travelToSite(static_cast<uint8_t>(param));
@@ -1720,6 +1733,158 @@ void drawStatDelta(const Item& item, int32_t x, int32_t y, uint16_t bg) {
                    item.strain);
 }
 
+void drawItemImageFrame(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t accent) {
+    auto& display = M5.Display;
+    display.fillRoundRect(x, y, w, h, 8, rgb(4, 7, 8));
+    display.drawRoundRect(x, y, w, h, 8, accent);
+    display.fillRoundRect(x + 12, y + 12, w - 24, h - 24, 6, rgb(14, 17, 16));
+    display.drawFastHLine(x + 24, y + h - 36, w - 48, rgb(45, 48, 42));
+    for (uint8_t i = 0; i < 18; ++i) {
+        const uint32_t seed = mapNoise(static_cast<uint32_t>(i) * 733UL + static_cast<uint32_t>(accent) * 17UL);
+        const int32_t px = x + 18 + static_cast<int32_t>(seed % static_cast<uint32_t>(w - 36));
+        const int32_t py = y + 18 + static_cast<int32_t>((seed >> 11) % static_cast<uint32_t>(h - 36));
+        display.drawPixel(px, py, rgb(38, 44, 40));
+    }
+}
+
+void drawItemImage(uint8_t itemId, int32_t x, int32_t y, int32_t w, int32_t h) {
+    auto& display = M5.Display;
+    const Item& item = itemCatalog[itemId];
+    const int32_t cx = x + w / 2;
+    const int32_t cy = y + h / 2 + 6;
+
+    drawItemImageFrame(x, y, w, h, item.color);
+
+    switch (itemId) {
+        case 0:  // Patch Mask
+            display.fillRoundRect(cx - 38, cy - 48, 76, 88, 26, rgb(54, 62, 58));
+            display.fillRoundRect(cx - 25, cy - 20, 50, 42, 12, rgb(78, 86, 80));
+            display.fillCircle(cx - 15, cy - 35, 11, rgb(24, 44, 48));
+            display.fillCircle(cx + 15, cy - 35, 11, rgb(24, 44, 48));
+            display.drawCircle(cx - 15, cy - 35, 12, rgb(150, 160, 150));
+            display.drawCircle(cx + 15, cy - 35, 12, rgb(150, 160, 150));
+            display.fillRect(cx - 20, cy + 5, 40, 17, rgb(36, 42, 40));
+            display.drawLine(cx - 45, cy - 20, cx - 68, cy + 10, rgb(82, 92, 84));
+            display.drawLine(cx + 45, cy - 20, cx + 68, cy + 10, rgb(82, 92, 84));
+            break;
+        case 1:  // Rubber Trench
+            display.fillTriangle(cx, cy - 70, cx - 55, cy + 58, cx + 55, cy + 58, rgb(36, 58, 46));
+            display.fillTriangle(cx, cy - 52, cx - 22, cy + 50, cx + 22, cy + 50, rgb(48, 82, 60));
+            display.drawLine(cx, cy - 62, cx, cy + 56, rgb(110, 130, 110));
+            display.drawLine(cx - 22, cy - 12, cx - 58, cy + 30, rgb(26, 40, 34));
+            display.drawLine(cx + 22, cy - 12, cx + 58, cy + 30, rgb(26, 40, 34));
+            display.fillRect(cx - 18, cy - 50, 36, 10, rgb(74, 92, 74));
+            break;
+        case 2:  // Mirrorweave Coat
+            display.fillTriangle(cx, cy - 70, cx - 58, cy + 58, cx + 58, cy + 58, rgb(70, 42, 86));
+            display.fillTriangle(cx, cy - 52, cx - 24, cy + 50, cx + 24, cy + 50, rgb(110, 70, 128));
+            for (int8_t i = -4; i <= 4; ++i) {
+                display.drawLine(cx - 46, cy - 48 + i * 18, cx + 42, cy - 62 + i * 18, rgb(185, 100, 210));
+                display.drawLine(cx - 38, cy - 58 + i * 18, cx + 48, cy - 42 + i * 18, rgb(72, 170, 190));
+            }
+            break;
+        case 3:  // Coil Detector
+            display.drawCircle(cx - 28, cy - 18, 38, rgb(120, 92, 55));
+            display.drawCircle(cx - 28, cy - 18, 28, rgb(180, 140, 78));
+            display.drawCircle(cx - 28, cy - 18, 18, rgb(60, 48, 36));
+            drawThickLine(cx + 4, cy + 6, cx + 62, cy + 58, rgb(76, 82, 76), 3);
+            display.fillRoundRect(cx + 48, cy + 44, 34, 18, 5, rgb(38, 45, 42));
+            display.drawLine(cx - 52, cy - 46, cx + 8, cy + 12, rgb(210, 180, 95));
+            break;
+        case 4:  // Glass Needle
+            display.fillTriangle(cx - 10, cy - 70, cx + 18, cy + 42, cx - 38, cy + 42, rgb(44, 92, 96));
+            display.drawTriangle(cx - 10, cy - 70, cx + 18, cy + 42, cx - 38, cy + 42, rgb(165, 245, 220));
+            display.fillRect(cx - 16, cy + 38, 15, 38, rgb(55, 58, 54));
+            display.drawLine(cx + 4, cy - 40, cx - 28, cy + 36, rgb(220, 255, 240));
+            display.drawCircle(cx + 30, cy + 16, 12, rgb(80, 230, 190));
+            break;
+        case 5:  // Prybar Kit
+            drawThickLine(cx - 54, cy + 42, cx + 48, cy - 45, rgb(92, 86, 74), 5);
+            drawThickLine(cx - 54, cy + 42, cx + 48, cy - 45, rgb(150, 142, 120), 2);
+            display.drawCircle(cx + 52, cy - 48, 15, rgb(160, 150, 128));
+            display.fillRoundRect(cx - 62, cy - 44, 54, 28, 5, rgb(76, 54, 38));
+            display.drawLine(cx - 54, cy - 28, cx - 14, cy - 28, rgb(170, 130, 85));
+            break;
+        case 6:  // Solder Rig
+            display.fillRoundRect(cx - 60, cy + 4, 58, 44, 5, rgb(42, 48, 50));
+            display.fillRect(cx - 52, cy + 14, 38, 8, rgb(230, 110, 70));
+            drawThickLine(cx - 4, cy + 20, cx + 58, cy - 40, rgb(78, 70, 64), 4);
+            drawThickLine(cx + 48, cy - 30, cx + 72, cy - 58, rgb(195, 180, 145), 2);
+            display.drawLine(cx - 2, cy + 8, cx + 30, cy + 48, rgb(28, 28, 26));
+            display.drawLine(cx + 30, cy + 48, cx + 60, cy + 28, rgb(28, 28, 26));
+            break;
+        case 7:  // Quiet Nailgun
+            display.fillRoundRect(cx - 60, cy - 30, 95, 34, 6, rgb(66, 66, 62));
+            display.fillRect(cx + 28, cy - 22, 42, 10, rgb(38, 42, 40));
+            display.fillTriangle(cx - 20, cy + 0, cx + 22, cy + 0, cx + 0, cy + 55, rgb(48, 50, 48));
+            display.fillRect(cx - 48, cy + 4, 22, 42, rgb(54, 44, 38));
+            display.drawFastHLine(cx - 52, cy - 18, 78, rgb(128, 132, 120));
+            display.fillCircle(cx + 48, cy - 8, 4, rgb(210, 80, 160));
+            break;
+        case 8:  // Rail Pistol
+            display.fillRoundRect(cx - 65, cy - 32, 108, 32, 5, rgb(78, 72, 70));
+            display.fillRect(cx + 35, cy - 26, 42, 8, rgb(160, 150, 128));
+            display.fillRect(cx - 8, cy - 42, 50, 9, rgb(52, 56, 58));
+            display.fillTriangle(cx - 24, cy - 2, cx + 20, cy - 2, cx - 4, cy + 56, rgb(56, 46, 44));
+            display.drawFastHLine(cx - 56, cy - 16, 84, rgb(230, 75, 92));
+            display.drawLine(cx + 42, cy - 12, cx + 78, cy - 12, rgb(230, 210, 160));
+            break;
+        case 9:  // Warm Battery
+            display.fillRoundRect(cx - 42, cy - 58, 84, 112, 8, rgb(72, 58, 38));
+            display.fillRect(cx - 20, cy - 70, 40, 14, rgb(110, 92, 56));
+            display.drawRoundRect(cx - 42, cy - 58, 84, 112, 8, rgb(238, 176, 72));
+            for (uint8_t i = 0; i < 4; ++i) {
+                display.drawFastHLine(cx - 26, cy - 28 + i * 24, 52, rgb(230, 185, 82));
+            }
+            display.fillCircle(cx, cy + 5, 18, rgb(240, 160, 72));
+            break;
+        case 10:  // Mourning Lens
+            display.fillCircle(cx, cy - 6, 58, rgb(18, 24, 34));
+            display.fillCircle(cx, cy - 6, 44, rgb(38, 54, 82));
+            display.fillCircle(cx - 12, cy - 20, 18, rgb(88, 118, 170));
+            display.drawCircle(cx, cy - 6, 60, rgb(132, 150, 190));
+            display.drawLine(cx - 36, cy - 44, cx + 42, cy + 34, rgb(190, 205, 220));
+            display.drawLine(cx + 8, cy - 56, cx - 22, cy + 42, rgb(90, 110, 150));
+            display.fillRoundRect(cx - 24, cy + 52, 48, 16, 5, rgb(50, 45, 42));
+            break;
+        case 11:  // Null Charm
+            display.fillTriangle(cx, cy - 62, cx - 48, cy + 22, cx + 48, cy + 22, rgb(34, 88, 70));
+            display.fillTriangle(cx, cy - 42, cx - 28, cy + 12, cx + 28, cy + 12, rgb(12, 20, 18));
+            display.drawTriangle(cx, cy - 62, cx - 48, cy + 22, cx + 48, cy + 22, rgb(120, 230, 170));
+            display.drawLine(cx, cy + 22, cx, cy + 68, rgb(94, 120, 110));
+            display.fillCircle(cx, cy - 6, 7, rgb(120, 230, 170));
+            display.drawCircle(cx, cy - 6, 23, rgb(44, 110, 88));
+            break;
+        case 12:  // Iodine Ampoule
+            display.fillRoundRect(cx - 18, cy - 64, 36, 120, 14, rgb(72, 78, 68));
+            display.fillRoundRect(cx - 13, cy - 30, 26, 76, 10, rgb(150, 96, 38));
+            display.drawRoundRect(cx - 18, cy - 64, 36, 120, 14, rgb(210, 225, 190));
+            display.drawFastHLine(cx - 15, cy - 38, 30, rgb(230, 235, 200));
+            display.fillTriangle(cx - 10, cy - 66, cx + 10, cy - 66, cx, cy - 84, rgb(160, 170, 150));
+            display.drawLine(cx + 9, cy - 52, cx - 8, cy + 42, rgb(230, 190, 125));
+            break;
+        case 13:  // Canned Coffee
+            display.fillRoundRect(cx - 34, cy - 58, 68, 116, 10, rgb(105, 66, 42));
+            display.fillRect(cx - 31, cy - 34, 62, 56, rgb(160, 100, 58));
+            display.drawRoundRect(cx - 34, cy - 58, 68, 116, 10, rgb(190, 150, 105));
+            display.drawFastHLine(cx - 28, cy - 46, 56, rgb(210, 180, 130));
+            display.drawFastHLine(cx - 28, cy + 48, 56, rgb(65, 48, 38));
+            display.fillCircle(cx, cy - 6, 15, rgb(56, 36, 28));
+            display.drawCircle(cx, cy - 6, 23, rgb(215, 160, 85));
+            break;
+        case 14:  // Copper Saint
+            display.fillCircle(cx, cy - 42, 22, rgb(150, 82, 42));
+            display.fillRoundRect(cx - 25, cy - 20, 50, 86, 8, rgb(176, 92, 48));
+            display.fillTriangle(cx - 25, cy + 12, cx - 66, cy + 56, cx - 20, cy + 48, rgb(120, 64, 38));
+            display.fillTriangle(cx + 25, cy + 12, cx + 66, cy + 56, cx + 20, cy + 48, rgb(120, 64, 38));
+            display.drawCircle(cx, cy - 42, 28, rgb(230, 150, 70));
+            display.drawLine(cx, cy - 10, cx, cy + 52, rgb(80, 45, 32));
+            display.fillCircle(cx - 8, cy - 45, 3, rgb(36, 24, 18));
+            display.fillCircle(cx + 8, cy - 45, 3, rgb(36, 24, 18));
+            break;
+    }
+}
+
 bool isEquippedInventorySlot(uint8_t invSlot) {
     for (uint8_t i = 0; i < kEquipSlotCount; ++i) {
         if (equipped[i] == invSlot) {
@@ -1727,6 +1892,109 @@ bool isEquippedInventorySlot(uint8_t invSlot) {
         }
     }
     return false;
+}
+
+void drawInventoryScreen();
+
+const char* itemActionLabel(const Item& item, bool equippedNow) {
+    if (item.slot == Slot::Consumable) {
+        return "Use Dose";
+    }
+    return equippedNow ? "Equipped" : "Equip";
+}
+
+void drawItemDetailScreen() {
+    auto& display = M5.Display;
+    clearButtons();
+    display.fillScreen(rgb(3, 6, 9));
+    drawHeader();
+
+    if (!validInventorySlot(selectedInventorySlot)) {
+        currentScreen = Screen::Inventory;
+        drawInventoryScreen();
+        return;
+    }
+
+    const int32_t width = display.width();
+    const int32_t height = display.height();
+    const int32_t margin = 18;
+    const int32_t top = 82;
+    const int32_t bottomH = 72;
+    const int32_t imageW = 340;
+    const int32_t imageH = height - top - bottomH - margin;
+    const int32_t detailX = margin + imageW + 16;
+    const int32_t detailW = width - detailX - margin;
+    const uint8_t itemId = static_cast<uint8_t>(inventory[selectedInventorySlot]);
+    const Item& item = itemCatalog[itemId];
+    const bool equippedNow = isEquippedInventorySlot(static_cast<uint8_t>(selectedInventorySlot));
+    const uint16_t bg = rgb(8, 12, 17);
+
+    drawItemImage(itemId, margin, top, imageW, imageH);
+
+    drawPanel(detailX, top, detailW, imageH, item.color);
+    display.setFont(&fonts::Font4);
+    display.setTextColor(TFT_WHITE, bg);
+    display.drawString(item.name, detailX + 18, top + 16);
+
+    display.setFont(&fonts::Font2);
+    display.setTextColor(rgb(160, 180, 178), bg);
+    display.setCursor(detailX + 20, top + 54);
+    display.printf("%s / %s  value %u", slotName(item.slot), item.tag, static_cast<unsigned>(item.value));
+    if (equippedNow) {
+        display.setTextColor(rgb(120, 240, 190), bg);
+        display.drawString("EQUIPPED", detailX + detailW - 116, top + 54);
+    }
+
+    display.drawFastHLine(detailX + 18, top + 88, detailW - 36, rgb(55, 70, 70));
+    display.setTextColor(rgb(215, 222, 212), bg);
+    drawWrappedText(item.description, detailX + 20, top + 112, detailW - 40, 4, rgb(215, 222, 212), bg);
+
+    display.setTextColor(rgb(125, 230, 205), bg);
+    display.drawString("Field Read", detailX + 20, top + 222);
+    display.setTextColor(rgb(170, 188, 184), bg);
+    switch (item.slot) {
+        case Slot::Suit:
+            drawWrappedText("Worn against weather, bad air, panic sweat, and whatever the rain is learning to become.",
+                            detailX + 20, top + 252, detailW - 40, 3, rgb(170, 188, 184), bg);
+            break;
+        case Slot::Detector:
+            drawWrappedText("Useful when the world lies visually. Fragile when the world starts lying back.",
+                            detailX + 20, top + 252, detailW - 40, 3, rgb(170, 188, 184), bg);
+            break;
+        case Slot::Tool:
+            drawWrappedText("Turns locked places into negotiations. Also turns quiet places into loud ones.",
+                            detailX + 20, top + 252, detailW - 40, 3, rgb(170, 188, 184), bg);
+            break;
+        case Slot::Weapon:
+            drawWrappedText("A problem solver with a receipt. Every use writes your name somewhere.",
+                            detailX + 20, top + 252, detailW - 40, 3, rgb(170, 188, 184), bg);
+            break;
+        case Slot::Artifact:
+            drawWrappedText("Not equipment exactly. More like a small rule from somewhere else, carried in your pocket.",
+                            detailX + 20, top + 252, detailW - 40, 3, rgb(170, 188, 184), bg);
+            break;
+        case Slot::Consumable:
+            drawWrappedText("Temporary mercy. The Zone keeps the permanent kind for itself.",
+                            detailX + 20, top + 252, detailW - 40, 3, rgb(170, 188, 184), bg);
+            break;
+    }
+
+    display.drawFastHLine(detailX + 18, top + imageH - 84, detailW - 36, rgb(55, 70, 70));
+    display.setTextColor(rgb(210, 220, 215), bg);
+    display.drawString("Effects", detailX + 20, top + imageH - 62);
+    drawStatDelta(item, detailX + 96, top + imageH - 62, bg);
+    display.setTextColor(rgb(145, 160, 158), bg);
+    display.drawString("G grit  T tech  S scan  H ghost  F filter  X strain", detailX + 20, top + imageH - 34);
+
+    const int32_t buttonY = height - bottomH;
+    addButton("Pack", margin, buttonY + 8, 160, 52, UiAction::Inventory, 0, rgb(90, 210, 220));
+    addButton("Field", margin + 174, buttonY + 8, 150, 52, UiAction::BackToField, 0, rgb(120, 220, 120));
+    addButton(itemActionLabel(item, equippedNow), width - margin - 230, buttonY + 8, 230, 52, UiAction::EquipOrUse,
+              selectedInventorySlot, item.color, item.slot == Slot::Consumable || !equippedNow);
+
+    for (uint8_t i = 0; i < buttonCount; ++i) {
+        drawButton(buttons[i]);
+    }
 }
 
 void drawInventoryScreen() {
@@ -1755,7 +2023,7 @@ void drawInventoryScreen() {
 
     display.setFont(&fonts::Font2);
     display.setTextColor(rgb(150, 168, 170), bg);
-    display.drawString("Tap gear to equip. Tap doses to use.", listX + 18, top + 52);
+    display.drawString("Tap an item to inspect it.", listX + 18, top + 52);
 
     uint8_t drawn = 0;
     for (uint8_t i = 0; i < kInventoryCapacity; ++i) {
@@ -1779,7 +2047,7 @@ void drawInventoryScreen() {
             display.setTextColor(rgb(120, 240, 190), rowBg);
             display.drawString("EQUIPPED", listX + listW - 126, rowY + 18);
         }
-        addButton("", listX + 16, rowY, listW - 32, rowH - 8, UiAction::EquipOrUse, i, item.color, true, false);
+        addButton("", listX + 16, rowY, listW - 32, rowH - 8, UiAction::InspectItem, i, item.color, true, false);
         ++drawn;
     }
 
@@ -1794,6 +2062,9 @@ void drawCurrentScreen() {
     switch (currentScreen) {
         case Screen::Inventory:
             drawInventoryScreen();
+            break;
+        case Screen::ItemDetail:
+            drawItemDetailScreen();
             break;
         case Screen::Map:
             drawMapScreen();

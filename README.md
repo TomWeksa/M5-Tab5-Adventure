@@ -19,7 +19,7 @@ Neon Exclusion is an original cyberpunk/post-apocalyptic survival adventure abou
 - Time pressure: each field move spends daylight, curfew punishes late runs, and the clinic bill is due every dawn.
 - Site pressure: observing reveals leads, exploring drains finite cache, and noisy actions build heat that raises risk.
 - Narrative signal map: travel is chosen from an atmospheric satellite-style route map with destination-specific landmark icons, site state, route cost, exposure, and distorted district notes.
-- Inventory taps equip gear or consume doses.
+- Inventory taps open item inspection cards with field images, flavor text, stat effects, and equip/use actions.
 
 ## Design Direction
 
