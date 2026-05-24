@@ -29,6 +29,20 @@ constexpr uint8_t kTradeRowsPerPage = 6;
 constexpr uint8_t kBatteryCellItem = 15;
 constexpr uint8_t kCleanWaterItem = 16;
 constexpr uint8_t kMedPackItem = 17;
+constexpr uint8_t kRubberTrenchItem = 1;
+constexpr uint8_t kMirrorweaveItem = 2;
+constexpr uint8_t kCoilDetectorItem = 3;
+constexpr uint8_t kGlassNeedleItem = 4;
+constexpr uint8_t kPrybarKitItem = 5;
+constexpr uint8_t kSolderRigItem = 6;
+constexpr uint8_t kQuietNailgunItem = 7;
+constexpr uint8_t kRailPistolItem = 8;
+constexpr uint8_t kWarmBatteryItem = 9;
+constexpr uint8_t kMourningLensItem = 10;
+constexpr uint8_t kNullCharmItem = 11;
+constexpr uint8_t kCopperSaintItem = 14;
+
+enum class OutcomeLevel : uint8_t { Failure, Partial, Success, Full };
 
 // Runtime state is intentionally plain globals because the Arduino loop is a
 // single-scene program and redraws from this state directly.
@@ -56,6 +70,12 @@ Button buttons[kMaxButtons];
 uint8_t buttonCount = 0;
 bool screenDirty = true;
 bool touchWasPressed = false;
+bool warmBatterySpent = false;
+bool railPistolSpent = false;
+bool quietNailgunSpent = false;
+bool mourningLensSpent = false;
+bool copperSaintSpent = false;
+bool nullCharmSpent[kSiteCapacity];
 char statusLine[320] = "The rain tastes metallic. Your kit is the only thing between you and the quiet.";
 char rewardTitle[80] = "";
 char rewardSummary[320] = "";
@@ -130,6 +150,17 @@ bool validInventorySlot(int16_t slot) {
 bool isEquippedInventorySlot(uint8_t invSlot) {
     for (uint8_t i = 0; i < kEquipSlotCount; ++i) {
         if (equipped[i] == invSlot) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Checks whether a specific catalog item is currently equipped.
+bool equippedCatalogItem(uint8_t itemId) {
+    for (uint8_t i = 0; i < kEquipSlotCount; ++i) {
+        const int16_t invSlot = equipped[i];
+        if (validInventorySlot(invSlot) && inventory[invSlot] == itemId) {
             return true;
         }
     }
@@ -327,6 +358,175 @@ int16_t leadSkill(LeadKind lead, const Stats& stats) {
     return 0;
 }
 
+// Appends a short ability note to a status buffer.
+void appendAbilityNote(char* buffer, size_t bufferSize, const char* note) {
+    if (note == nullptr || note[0] == '\0') {
+        return;
+    }
+    const size_t used = strlen(buffer);
+    if (used + 2 >= bufferSize) {
+        return;
+    }
+    snprintf(buffer + used, bufferSize - used, "%s%s", used == 0 ? "" : " ", note);
+}
+
+// Converts the roll margin into a richer result than binary pass/fail.
+OutcomeLevel outcomeForRoll(int16_t total, int16_t target) {
+    if (total >= target + 3) {
+        return OutcomeLevel::Full;
+    }
+    if (total >= target) {
+        return OutcomeLevel::Success;
+    }
+    if (total >= target - 2) {
+        return OutcomeLevel::Partial;
+    }
+    return OutcomeLevel::Failure;
+}
+
+bool outcomeHasReward(OutcomeLevel outcome) {
+    return outcome != OutcomeLevel::Failure;
+}
+
+const char* outcomeName(OutcomeLevel outcome) {
+    switch (outcome) {
+        case OutcomeLevel::Full:
+            return "clean";
+        case OutcomeLevel::Success:
+            return "success";
+        case OutcomeLevel::Partial:
+            return "partial";
+        case OutcomeLevel::Failure:
+            return "failure";
+    }
+    return "failure";
+}
+
+bool actionUsesTech(UiAction action, LeadKind lead) {
+    return action == UiAction::Observe ||
+           (action == UiAction::FollowLead && (lead == LeadKind::Contact || lead == LeadKind::Door));
+}
+
+// Skill modifiers are item-specific nudges that make equipped gear change verbs.
+int16_t abilitySkillDelta(UiAction action, LeadKind lead) {
+    int16_t delta = 0;
+    if (action == UiAction::Observe) {
+        if (equippedCatalogItem(kMourningLensItem)) {
+            delta += 1;
+        }
+        if (equippedCatalogItem(kGlassNeedleItem)) {
+            delta += 1;
+        }
+    }
+    if (action == UiAction::FollowLead) {
+        if ((lead == LeadKind::Contact || lead == LeadKind::Trail) && equippedCatalogItem(kMirrorweaveItem)) {
+            delta += 1;
+        }
+        if (lead == LeadKind::Anomaly && equippedCatalogItem(kGlassNeedleItem)) {
+            delta += 2;
+        }
+        if (lead == LeadKind::Door && equippedCatalogItem(kSolderRigItem)) {
+            delta += 2;
+        }
+        if ((lead == LeadKind::Door || lead == LeadKind::Cache) && equippedCatalogItem(kPrybarKitItem)) {
+            delta += 1;
+        }
+        if (lead == LeadKind::Trail && equippedCatalogItem(kCoilDetectorItem)) {
+            delta += 1;
+        }
+    }
+    return delta;
+}
+
+// Target modifiers represent gear opening a cleaner or more specialized method.
+int16_t abilityTargetDelta(UiAction action, LeadKind lead) {
+    int16_t delta = 0;
+    if (action == UiAction::FollowLead) {
+        if ((lead == LeadKind::Contact || lead == LeadKind::Trail) && equippedCatalogItem(kMirrorweaveItem)) {
+            delta -= 1;
+        }
+        if (lead == LeadKind::Door && equippedCatalogItem(kSolderRigItem)) {
+            delta -= 1;
+        }
+        if ((lead == LeadKind::Door || lead == LeadKind::Cache) && equippedCatalogItem(kPrybarKitItem)) {
+            delta -= 1;
+        }
+        if (lead == LeadKind::Anomaly && equippedCatalogItem(kGlassNeedleItem)) {
+            delta -= 1;
+        }
+    }
+    return delta;
+}
+
+// Dose modifiers make the environment respond to the actual kit, not only stats.
+int16_t abilityDoseDelta(UiAction action, LeadKind lead) {
+    int16_t delta = 0;
+    if (action == UiAction::Explore && currentSite == 2 && equippedCatalogItem(kRubberTrenchItem)) {
+        delta -= 1;
+    }
+    if (action == UiAction::FollowLead && lead == LeadKind::Trail && equippedCatalogItem(kCoilDetectorItem)) {
+        delta -= 1;
+    }
+    if (action == UiAction::FollowLead && lead == LeadKind::Anomaly && equippedCatalogItem(kGlassNeedleItem)) {
+        delta += 1;
+    }
+    if (action == UiAction::Observe && equippedCatalogItem(kMourningLensItem)) {
+        delta += 1;
+    }
+    return delta;
+}
+
+// Attention modifiers capture how loudly the current kit solves a situation.
+int16_t abilityAttentionDelta(UiAction action, LeadKind lead, bool rewardOutcome) {
+    int16_t delta = 0;
+    if (rewardOutcome && action == UiAction::FollowLead) {
+        if ((lead == LeadKind::Contact || lead == LeadKind::Trail) && equippedCatalogItem(kMirrorweaveItem)) {
+            delta -= 1;
+        }
+        if (lead == LeadKind::Door && equippedCatalogItem(kSolderRigItem)) {
+            delta -= 1;
+        }
+        if ((lead == LeadKind::Door || lead == LeadKind::Cache) && equippedCatalogItem(kPrybarKitItem)) {
+            delta += 1;
+        }
+        if ((lead == LeadKind::Door || lead == LeadKind::Contact) && equippedCatalogItem(kQuietNailgunItem)) {
+            delta -= 1;
+        }
+    }
+    return delta;
+}
+
+// Short narrative tags describe why the numbers changed.
+void describeActionAbilities(UiAction action, LeadKind lead, char* buffer, size_t bufferSize) {
+    buffer[0] = '\0';
+    if (action == UiAction::Observe && equippedCatalogItem(kMourningLensItem)) {
+        appendAbilityNote(buffer, bufferSize, "The Mourning Lens shows absences as warnings.");
+    }
+    if (action == UiAction::Observe && equippedCatalogItem(kGlassNeedleItem)) {
+        appendAbilityNote(buffer, bufferSize, "The Glass Needle points at the space your eyes keep skipping.");
+    }
+    if (action == UiAction::FollowLead && lead == LeadKind::Anomaly && equippedCatalogItem(kGlassNeedleItem)) {
+        appendAbilityNote(buffer, bufferSize, "The Glass Needle makes the wrong-light profitable.");
+    }
+    if (action == UiAction::FollowLead && lead == LeadKind::Door && equippedCatalogItem(kSolderRigItem)) {
+        appendAbilityNote(buffer, bufferSize, "The Solder Rig smells powered locks through the rain.");
+    }
+    if (action == UiAction::FollowLead && (lead == LeadKind::Door || lead == LeadKind::Cache) &&
+        equippedCatalogItem(kPrybarKitItem)) {
+        appendAbilityNote(buffer, bufferSize, "The Prybar turns quiet places into negotiations.");
+    }
+    if (action == UiAction::FollowLead && (lead == LeadKind::Contact || lead == LeadKind::Trail) &&
+        equippedCatalogItem(kMirrorweaveItem)) {
+        appendAbilityNote(buffer, bufferSize, "Mirrorweave borrows the advert light and gives back a safer silhouette.");
+    }
+    if (action == UiAction::FollowLead && lead == LeadKind::Trail && equippedCatalogItem(kCoilDetectorItem)) {
+        appendAbilityNote(buffer, bufferSize, "The Coil Detector clicks before the road lies.");
+    }
+    if (action == UiAction::Explore && equippedCatalogItem(kRailPistolItem) && !railPistolSpent) {
+        appendAbilityNote(buffer, bufferSize, "The Rail Pistol can still turn a bad push into a loud answer.");
+    }
+}
+
 // Picks a site-appropriate lead when observation succeeds.
 LeadKind randomLeadForSite(uint8_t siteIndex) {
     if (siteIndex == 1) {
@@ -416,16 +616,26 @@ const char* actionBlockedText(UiAction action) {
 
 // Selects the stat total used for a field action roll.
 int16_t actionSkill(UiAction action, const Stats& stats) {
+    const LeadKind lead = siteLead[currentSite];
+    int16_t skill = 0;
     switch (action) {
         case UiAction::Observe:
-            return stats.scan + stats.tech;
+            skill = stats.scan + stats.tech;
+            break;
         case UiAction::Explore:
-            return stats.grit + stats.filter;
+            skill = stats.grit + stats.filter;
+            break;
         case UiAction::FollowLead:
-            return leadSkill(siteLead[currentSite], stats);
+            if (lead == LeadKind::Door && equippedCatalogItem(kSolderRigItem)) {
+                skill = stats.tech + stats.scan;
+            } else {
+                skill = leadSkill(lead, stats);
+            }
+            break;
         default:
             return 0;
     }
+    return skill + abilitySkillDelta(action, lead);
 }
 
 // Builds the difficulty target from site risk, attention, and action type.
@@ -446,6 +656,7 @@ int16_t actionTarget(UiAction action) {
     if (action == UiAction::Explore && siteAttention[currentSite] > 0) {
         target += 1;
     }
+    target += abilityTargetDelta(action, siteLead[currentSite]);
     return clampInt(target, 3, 12);
 }
 
@@ -464,7 +675,7 @@ int16_t actionExposureCost(UiAction action, const Stats& stats) {
             dose = clampInt(dose - 1, 0, 4);
         }
     }
-    return dose;
+    return clampInt(dose + abilityDoseDelta(action, siteLead[currentSite]), 0, 6);
 }
 
 // Converts a stat-vs-target gap into the percentage shown to the player.
@@ -1111,24 +1322,32 @@ uint8_t randomLootForAction(UiAction action) {
 
 // Calculates how much attention a field action adds to the current site.
 uint8_t actionAttentionGain(UiAction action, bool success) {
+    int16_t gain = 0;
     switch (action) {
         case UiAction::Observe:
-            return success ? 0 : 1;
+            gain = success ? 0 : 1;
+            break;
         case UiAction::Explore:
-            return success ? 3 : 4;
+            gain = success ? 3 : 4;
+            break;
         case UiAction::FollowLead: {
             const LeadKind lead = siteLead[currentSite];
             if (lead == LeadKind::Contact || lead == LeadKind::Trail) {
-                return success ? 0 : 2;
+                gain = success ? 0 : 2;
+                break;
             }
             if (lead == LeadKind::Anomaly) {
-                return success ? 1 : 3;
+                gain = success ? 1 : 3;
+                break;
             }
-            return success ? 2 : 3;
+            gain = success ? 2 : 3;
+            break;
         }
         default:
             return 0;
     }
+    return static_cast<uint8_t>(clampInt(gain + abilityAttentionDelta(action, siteLead[currentSite], success), 0,
+                                         kMaxSiteAttention));
 }
 
 // Lowers attention, fades intel, clears leads, and slowly restocks sites overnight.
@@ -1149,6 +1368,14 @@ void startNewDay(const char* lead) {
     timeTick = 0;
     currentSite = 0;
     coolSitesForNewDay();
+    warmBatterySpent = false;
+    railPistolSpent = false;
+    quietNailgunSpent = false;
+    mourningLensSpent = false;
+    copperSaintSpent = false;
+    for (uint8_t i = 0; i < kSiteCapacity; ++i) {
+        nullCharmSpent[i] = false;
+    }
 
     char bill[96];
     const int16_t paid = payTradeValue(kDailyUpkeepValue);
@@ -1196,6 +1423,15 @@ void checkCollapse() {
         return;
     }
 
+    if (equippedCatalogItem(kCopperSaintItem) && !copperSaintSpent) {
+        copperSaintSpent = true;
+        health = health <= 0 ? 1 : health;
+        exposure = clampInt(exposure, 0, kMaxExposure - 1);
+        siteAttention[currentSite] = clampInt(siteAttention[currentSite] + 2, 0, kMaxSiteAttention);
+        setStatus("The Copper Saint burns hot enough to hurt. You stay standing at 1 body, and the district notices.");
+        return;
+    }
+
     currentSite = 0;
     timeTick = 0;
     coolSitesForNewDay();
@@ -1224,26 +1460,81 @@ void resolveFieldAction(UiAction action) {
     const int16_t skill = actionSkill(action, stats);
     const int16_t target = actionTarget(action);
     const int16_t total = skill + random(1, 7);
-    const int16_t ambientDose = actionExposureCost(action, stats);
-    const bool success = total >= target;
-    const uint8_t attentionGain = actionAttentionGain(action, success);
+    int16_t ambientDose = actionExposureCost(action, stats);
+    OutcomeLevel outcome = outcomeForRoll(total, target);
+    char abilityNote[220];
+    describeActionAbilities(action, lead, abilityNote, sizeof(abilityNote));
+
+    bool railForced = false;
+    bool quietSaved = false;
+    bool lensGhost = false;
+    if (outcome == OutcomeLevel::Failure && action == UiAction::Explore && equippedCatalogItem(kRailPistolItem) &&
+        !railPistolSpent) {
+        outcome = OutcomeLevel::Success;
+        railPistolSpent = true;
+        railForced = true;
+        appendAbilityNote(abilityNote, sizeof(abilityNote),
+                          "The Rail Pistol gives a bright answer; the district writes down the question.");
+    }
+    if (outcome == OutcomeLevel::Failure && action == UiAction::FollowLead &&
+        (lead == LeadKind::Door || lead == LeadKind::Contact) && equippedCatalogItem(kQuietNailgunItem) &&
+        !quietNailgunSpent) {
+        outcome = OutcomeLevel::Partial;
+        quietNailgunSpent = true;
+        quietSaved = true;
+        appendAbilityNote(abilityNote, sizeof(abilityNote),
+                          "The Quiet Nailgun turns failure into a close, ugly partial.");
+    }
+    if (outcome == OutcomeLevel::Failure && action == UiAction::Observe && equippedCatalogItem(kMourningLensItem) &&
+        !mourningLensSpent) {
+        outcome = OutcomeLevel::Partial;
+        mourningLensSpent = true;
+        lensGhost = true;
+        appendAbilityNote(abilityNote, sizeof(abilityNote),
+                          "The Mourning Lens keeps the failed observation as a ghost lead.");
+    }
+
+    const bool rewardOutcome = outcomeHasReward(outcome);
+    uint8_t attentionGain = actionAttentionGain(action, rewardOutcome);
+    if (outcome == OutcomeLevel::Partial) {
+        ambientDose = clampInt(ambientDose + 1, 0, 6);
+        attentionGain = clampInt(attentionGain + 1, 0, kMaxSiteAttention);
+    }
+    if (railForced) {
+        ambientDose = clampInt(ambientDose + 1, 0, 6);
+        attentionGain = clampInt(attentionGain + 4, 0, kMaxSiteAttention);
+    }
+    if (quietSaved) {
+        attentionGain = clampInt(attentionGain + 1, 0, kMaxSiteAttention);
+    }
+    if (lensGhost) {
+        ambientDose = clampInt(ambientDose + 1, 0, 6);
+    }
+    if (attentionGain > 0 && equippedCatalogItem(kNullCharmItem) && !nullCharmSpent[currentSite]) {
+        nullCharmSpent[currentSite] = true;
+        attentionGain = attentionGain > 1 ? static_cast<uint8_t>(attentionGain - 1) : 0;
+        appendAbilityNote(abilityNote, sizeof(abilityNote),
+                          "The Null Charm eats the first clean witness, and a little certainty with it.");
+    }
 
     exposure = clampInt(exposure + ambientDose, 0, kMaxExposure);
     siteAttention[currentSite] = clampInt(siteAttention[currentSite] + attentionGain, 0, kMaxSiteAttention);
 
     char message[320];
     if (action == UiAction::Observe) {
-        if (success) {
+        if (rewardOutcome) {
             const LeadKind foundLead = randomLeadForSite(currentSite);
-            const uint8_t gainValue = random(0, 2);
+            const uint8_t gainValue = outcome == OutcomeLevel::Partial ? 0 : random(0, 2);
             siteLead[currentSite] = foundLead;
-            siteIntel[currentSite] = clampInt(siteIntel[currentSite] + 1, 0, kMaxSiteIntel);
+            siteIntel[currentSite] =
+                clampInt(siteIntel[currentSite] + (outcome == OutcomeLevel::Partial ? 0 : 1), 0, kMaxSiteIntel);
             if (gainValue > 0) {
                 grantTradeGoods(static_cast<uint8_t>(gainValue + 2));
             }
             snprintf(message, sizeof(message),
-                     "%s %s %d/%d. Lead: %s. %s",
-                     site.observeText, actionCheckText(action), total, target, leadName(foundLead), leadWhisper(foundLead));
+                     "%s %s %d/%d %s. Lead: %s. %s",
+                     site.observeText, actionCheckText(action), total, target, outcomeName(outcome), leadName(foundLead),
+                     leadWhisper(foundLead));
         } else {
             exposure = clampInt(exposure + 1, 0, kMaxExposure);
             snprintf(message, sizeof(message),
@@ -1251,31 +1542,41 @@ void resolveFieldAction(UiAction action) {
                      actionCheckText(action), total, target, attentionGain);
         }
     } else if (action == UiAction::Explore) {
-        if (success) {
+        if (rewardOutcome) {
             if (siteCache[currentSite] > 0) {
                 --siteCache[currentSite];
             }
 
-            const uint8_t gain = static_cast<uint8_t>(effectiveRiskForSite(currentSite) + random(1, 5));
+            uint8_t gain = static_cast<uint8_t>(effectiveRiskForSite(currentSite) + random(1, 5));
+            if (outcome == OutcomeLevel::Partial) {
+                gain = static_cast<uint8_t>(clampInt(gain / 2, 1, 99));
+            }
+            if (outcome == OutcomeLevel::Full) {
+                gain = static_cast<uint8_t>(gain + 2);
+            }
             grantTradeGoods(gain);
             if (siteLead[currentSite] == LeadKind::None && random(0, 100) < 55) {
                 const LeadKind foundLead = randomLeadForSite(currentSite);
                 siteLead[currentSite] = foundLead;
                 snprintf(message, sizeof(message),
-                         "You actively explore %s. %s %d/%d. Goods worth about %d, plus a %s.",
-                         site.name, actionCheckText(action), total, target, gain, leadName(foundLead));
+                         "You actively explore %s. %s %d/%d %s. Goods worth about %d, plus a %s.",
+                         site.name, actionCheckText(action), total, target, outcomeName(outcome), gain,
+                         leadName(foundLead));
             } else {
                 const uint8_t itemId = randomLootForAction(action);
                 const bool duplicate = hasCatalogItem(itemId) && itemCatalog[itemId].use.kind != ItemUseKind::Consume;
                 if (!duplicate && random(0, 100) < 58) {
                     grantRewardItem(itemId);
-                    snprintf(message, sizeof(message), "You push through %s. %s %d/%d. Goods worth about %d and %s.",
-                             site.name, actionCheckText(action), total, target, gain, itemCatalog[itemId].name);
+                    snprintf(message, sizeof(message),
+                             "You push through %s. %s %d/%d %s. Goods worth about %d and %s.",
+                             site.name, actionCheckText(action), total, target, outcomeName(outcome), gain,
+                             itemCatalog[itemId].name);
                 } else {
                     grantTradeGoods(static_cast<uint8_t>(itemCatalog[itemId].value / 2));
                     snprintf(message, sizeof(message),
-                             "You push through %s. %s %d/%d. Goods and salvage worth about %d. Cache %u.",
-                             site.name, actionCheckText(action), total, target, gain, siteCache[currentSite]);
+                             "You push through %s. %s %d/%d %s. Goods and salvage worth about %d. Cache %u.",
+                             site.name, actionCheckText(action), total, target, outcomeName(outcome), gain,
+                             siteCache[currentSite]);
                 }
             }
         } else {
@@ -1288,26 +1589,34 @@ void resolveFieldAction(UiAction action) {
                      site.name, actionCheckText(action), total, target, attentionGain, wound, dose);
         }
     } else if (action == UiAction::FollowLead) {
-        if (success) {
+        if (rewardOutcome) {
             const int16_t risk = effectiveRiskForSite(currentSite);
             int16_t gain = risk + random(2, 6);
+            if (outcome == OutcomeLevel::Partial) {
+                gain = clampInt(gain / 2, 1, 99);
+            }
+            if (outcome == OutcomeLevel::Full) {
+                gain += 2;
+            }
 
             if (lead == LeadKind::Contact) {
-                siteIntel[currentSite] = clampInt(siteIntel[currentSite] + 1, 0, kMaxSiteIntel);
+                siteIntel[currentSite] =
+                    clampInt(siteIntel[currentSite] + (outcome == OutcomeLevel::Partial ? 0 : 1), 0, kMaxSiteIntel);
                 grantTradeGoods(static_cast<uint8_t>(gain));
                 siteAttention[currentSite] =
                     siteAttention[currentSite] > 0 ? static_cast<uint8_t>(siteAttention[currentSite] - 1) : 0;
                 snprintf(message, sizeof(message),
-                         "You approach the quiet contact correctly. %s %d/%d. Goods worth about %d, intel +1, attention softens.",
-                         actionCheckText(action), total, target, gain);
+                         "You approach the quiet contact correctly. %s %d/%d %s. Goods worth about %d, attention softens.",
+                         actionCheckText(action), total, target, outcomeName(outcome), gain);
             } else if (lead == LeadKind::Trail) {
-                siteIntel[currentSite] = clampInt(siteIntel[currentSite] + 1, 0, kMaxSiteIntel);
+                siteIntel[currentSite] =
+                    clampInt(siteIntel[currentSite] + (outcome == OutcomeLevel::Partial ? 0 : 1), 0, kMaxSiteIntel);
                 siteAttention[currentSite] =
                     siteAttention[currentSite] > 2 ? static_cast<uint8_t>(siteAttention[currentSite] - 3) : 0;
                 exposure = clampInt(exposure - 1, 0, kMaxExposure);
                 snprintf(message, sizeof(message),
-                         "You trace the cleaner footpath. %s %d/%d. Attention drops, exposure drops, intel +1.",
-                         actionCheckText(action), total, target);
+                         "You trace the cleaner footpath. %s %d/%d %s. Attention drops, exposure drops.",
+                         actionCheckText(action), total, target, outcomeName(outcome));
             } else {
                 if (siteCache[currentSite] > 0) {
                     --siteCache[currentSite];
@@ -1323,14 +1632,15 @@ void resolveFieldAction(UiAction action) {
                 if (!duplicate || itemCatalog[itemId].use.kind == ItemUseKind::Consume) {
                     grantTradeGoods(static_cast<uint8_t>(gain));
                     grantRewardItem(itemId);
-                    snprintf(message, sizeof(message), "You %s the %s. %s %d/%d. Goods worth about %d and %s.",
-                             leadVerb(lead), leadName(lead), actionCheckText(action), total, target, gain,
-                             itemCatalog[itemId].name);
+                    snprintf(message, sizeof(message), "You %s the %s. %s %d/%d %s. Goods worth about %d and %s.",
+                             leadVerb(lead), leadName(lead), actionCheckText(action), total, target,
+                             outcomeName(outcome), gain, itemCatalog[itemId].name);
                 } else {
                     grantTradeGoods(static_cast<uint8_t>(gain + itemCatalog[itemId].value / 2));
                     snprintf(message, sizeof(message),
-                             "You %s the %s. %s %d/%d. Goods and valuable fragments worth about %d.",
-                             leadVerb(lead), leadName(lead), actionCheckText(action), total, target, gain);
+                             "You %s the %s. %s %d/%d %s. Goods and valuable fragments worth about %d.",
+                             leadVerb(lead), leadName(lead), actionCheckText(action), total, target,
+                             outcomeName(outcome), gain);
                 }
             }
             siteLead[currentSite] = LeadKind::None;
@@ -1348,10 +1658,19 @@ void resolveFieldAction(UiAction action) {
         return;
     }
 
+    uint8_t spentTicks = actionTimeCost(action);
+    if (rewardOutcome && actionUsesTech(action, lead) && equippedCatalogItem(kWarmBatteryItem) && !warmBatterySpent &&
+        spentTicks > 0) {
+        --spentTicks;
+        warmBatterySpent = true;
+        appendAbilityNote(abilityNote, sizeof(abilityNote),
+                          "The Warm Battery refunds an hour that should have been gone.");
+    }
+    appendAbilityNote(message, sizeof(message), abilityNote);
     snprintf(rewardTitle, sizeof(rewardTitle), "%s Complete", actionLabel(action));
     snprintf(rewardSummary, sizeof(rewardSummary), "%s", message);
     setStatus(message);
-    spendTime(actionTimeCost(action));
+    spendTime(spentTicks);
     checkCollapse();
     currentScreen = Screen::Reward;
     screenDirty = true;
@@ -2599,6 +2918,11 @@ void initializeColors() {
 
 // Seeds the starting game state, inventory, equipment, and site caches.
 void initializeGame() {
+    warmBatterySpent = false;
+    railPistolSpent = false;
+    quietNailgunSpent = false;
+    mourningLensSpent = false;
+    copperSaintSpent = false;
     for (uint8_t i = 0; i < kInventoryCapacity; ++i) {
         inventory[i] = -1;
         tradeOfferSelected[i] = false;
@@ -2614,6 +2938,9 @@ void initializeGame() {
         siteIntel[i] = 0;
         siteCache[i] = sites[i].maxCache;
         siteLead[i] = LeadKind::None;
+    }
+    for (uint8_t i = 0; i < kSiteCapacity; ++i) {
+        nullCharmSpent[i] = false;
     }
 
     inventory[0] = 0;
