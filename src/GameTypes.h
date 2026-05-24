@@ -94,6 +94,7 @@ enum class UiAction : uint8_t {
     ContinueReward,
     ContinueDialogue,
     Travel,
+    ProperTreatment,
     Rest,
 };
 

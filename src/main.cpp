@@ -79,6 +79,8 @@ constexpr uint8_t kSleeplessMintItem = 64;
 constexpr uint8_t kFenceRunnersSaltItem = 65;
 constexpr uint8_t kCheapCourageSyrupItem = 66;
 constexpr uint8_t kBlueMilkSachetItem = 67;
+constexpr uint8_t kIodineAmpouleItem = 12;
+constexpr uint8_t kCannedCoffeeItem = 13;
 constexpr uint8_t kRubberTrenchItem = 1;
 constexpr uint8_t kMirrorweaveItem = 2;
 constexpr uint8_t kCoilDetectorItem = 3;
@@ -156,6 +158,7 @@ bool mercyBellSpent = false;
 bool calendarSpent = false;
 uint8_t ghostTeaSite = 255;
 bool blackIodineGuard = false;
+bool iodineShieldReady = false;
 bool sleeplessMintReady = false;
 bool fenceSaltReady = false;
 bool cheapCourageReady = false;
@@ -178,8 +181,9 @@ bool dialogueQueued = false;
 Screen dialogueNextScreen = Screen::Field;
 uint16_t dialogueAccent = 0;
 
-const uint8_t tradeStock[kTradeStockCount] = {kBatteryCellItem,        kCleanWaterItem,      kMedPackItem, 12,
-                                              13,                      kGhostTeaAmpouleItem, kBlackIodineStripItem,
+const uint8_t tradeStock[kTradeStockCount] = {kBatteryCellItem,        kCleanWaterItem,      kMedPackItem,
+                                              kIodineAmpouleItem,      kCannedCoffeeItem,    kGhostTeaAmpouleItem,
+                                              kBlackIodineStripItem,
                                               kBlueMilkSachetItem};
 
 int16_t dailyUpkeepValue();
@@ -273,6 +277,10 @@ bool equippedCatalogItem(uint8_t itemId) {
 // Several one-shot doses apply to the current site or the next relevant action.
 bool ghostTeaApplies(LeadKind lead) {
     return ghostTeaSite == currentSite && (lead == LeadKind::Contact || lead == LeadKind::Trail);
+}
+
+bool exposureProtectionActive() {
+    return iodineShieldReady || blackIodineGuard || blueMilkBlurReady;
 }
 
 uint8_t storyIndex(StoryArc arc) {
@@ -538,6 +546,12 @@ Stats deriveStatsWithReplacement(int16_t replacementInvSlot) {
         if (validInventorySlot(invSlot)) {
             addItemStats(stats, itemCatalog[inventory[invSlot]]);
         }
+    }
+    if (exposure >= 4 && !exposureProtectionActive()) {
+        --stats.scan;
+    }
+    if (exposure >= 7 && !exposureProtectionActive()) {
+        --stats.grit;
     }
     return clampStats(stats);
 }
@@ -1341,6 +1355,15 @@ void buildAreaPressureSynopsis(char* buffer, size_t bufferSize) {
     if (siteLead[currentSite] != LeadKind::None) {
         appendAbilityNote(buffer, bufferSize, leadWhisper(siteLead[currentSite]));
     }
+
+    if (exposure >= 10 && !exposureProtectionActive()) {
+        appendAbilityNote(buffer, bufferSize,
+                          "Your hands are shaking; clean outcomes need iodine or blue milk protection.");
+    } else if (exposure >= 7 && !exposureProtectionActive()) {
+        appendAbilityNote(buffer, bufferSize, "Sick light under the skin makes blind exploration cost more.");
+    } else if (exposure >= 4 && !exposureProtectionActive()) {
+        appendAbilityNote(buffer, bufferSize, "Buzzing exposure makes anomaly work less trustworthy.");
+    }
 }
 
 // Selects the stat total used for a field action roll.
@@ -1387,6 +1410,10 @@ int16_t actionTarget(UiAction action) {
             target -= 1;
         }
     }
+    if (exposure >= 4 && action == UiAction::FollowLead && siteLead[currentSite] == LeadKind::Anomaly &&
+        !exposureProtectionActive()) {
+        target += 1;
+    }
     if (action == UiAction::Explore && siteAttention[currentSite] > 0) {
         target += 1;
     }
@@ -1401,6 +1428,9 @@ int16_t actionExposureCost(UiAction action, const Stats& stats) {
         dose = clampInt(dose - 1, 0, 4);
     } else if (action == UiAction::Explore) {
         dose = clampInt(dose + 1, 0, 5);
+        if (exposure >= 7 && !exposureProtectionActive()) {
+            dose = clampInt(dose + 1, 0, 6);
+        }
     } else if (action == UiAction::FollowLead) {
         const LeadKind lead = siteLead[currentSite];
         if (lead == LeadKind::Anomaly) {
@@ -1658,6 +1688,11 @@ void grantTradeGoods(uint8_t targetValue) {
     }
 }
 
+bool itemProtectedFromAutoPay(uint8_t itemId) {
+    return itemId == kIodineAmpouleItem || itemId == kMedPackItem || itemId == kGhostTeaAmpouleItem ||
+           itemId == kBlackIodineStripItem || itemId == kBlueMilkSachetItem;
+}
+
 // Pays a value demand by consuming unequipped items, preferring small goods.
 int16_t payTradeValue(int16_t requiredValue) {
     int16_t paid = 0;
@@ -1665,7 +1700,8 @@ int16_t payTradeValue(int16_t requiredValue) {
         int16_t bestSlot = -1;
         uint8_t bestValue = 255;
         for (uint8_t i = 0; i < kInventoryCapacity; ++i) {
-            if (!validInventorySlot(i) || isEquippedInventorySlot(i)) {
+            if (!validInventorySlot(i) || isEquippedInventorySlot(i) ||
+                itemProtectedFromAutoPay(static_cast<uint8_t>(inventory[i]))) {
                 continue;
             }
             const uint8_t value = itemCatalog[inventory[i]].value;
@@ -1720,6 +1756,24 @@ bool tradeAvailableHere() {
     return currentSite == 0 || currentSite == 1;
 }
 
+bool itemCanPayForClinicTreatment(uint8_t itemId) {
+    return itemId == kIodineAmpouleItem || itemId == kMedPackItem || itemId == kBlackIodineStripItem ||
+           itemId == kBlueMilkSachetItem;
+}
+
+int16_t firstClinicTreatmentSlot() {
+    for (uint8_t i = 0; i < kInventoryCapacity; ++i) {
+        if (validInventorySlot(i) && itemCanPayForClinicTreatment(static_cast<uint8_t>(inventory[i]))) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+bool clinicTreatmentAvailable() {
+    return firstClinicTreatmentSlot() >= 0;
+}
+
 // Applies an inventory item: consumables resolve immediately, gear equips.
 void equipInventorySlot(uint8_t invSlot) {
     if (!validInventorySlot(invSlot)) {
@@ -1733,7 +1787,9 @@ void equipInventorySlot(uint8_t invSlot) {
         if (item.use.attentionDelta != 0) {
             siteAttention[currentSite] = clampInt(siteAttention[currentSite] + item.use.attentionDelta, 0, kMaxSiteAttention);
         }
-        if (itemId == kGhostTeaAmpouleItem) {
+        if (itemId == kIodineAmpouleItem) {
+            iodineShieldReady = true;
+        } else if (itemId == kGhostTeaAmpouleItem) {
             ghostTeaSite = currentSite;
         } else if (itemId == kBlackIodineStripItem) {
             blackIodineGuard = true;
@@ -2181,7 +2237,10 @@ void drawActionForecast(int32_t x, int32_t y, int32_t w, int32_t h) {
         const uint16_t border = enabled ? rgb(90, 210, 220) : rgb(58, 58, 62);
         const int16_t skill = actionSkill(action, stats);
         const int16_t target = actionTarget(action);
-        const uint8_t cleanChance = chanceForThreshold(skill, target + 3);
+        uint8_t cleanChance = chanceForThreshold(skill, target + 3);
+        if (exposure >= 10 && !exposureProtectionActive()) {
+            cleanChance = 0;
+        }
         const uint8_t safeChance = chanceForThreshold(skill, target);
         const uint8_t partialChance = chanceForThreshold(skill, target - 2);
         char abilityPreview[220];
@@ -2493,6 +2552,7 @@ void startNewDay(const char* lead) {
     calendarSpent = false;
     ghostTeaSite = 255;
     blackIodineGuard = false;
+    iodineShieldReady = false;
     sleeplessMintReady = false;
     fenceSaltReady = false;
     cheapCourageReady = false;
@@ -2579,6 +2639,34 @@ void spendTime(uint8_t ticks) {
 }
 
 // Handles the clinic recovery loop after the runner hits a fail state.
+void applyCollapseScar(uint8_t collapseSite, char* message, size_t messageSize) {
+    if (collapseSite == 0 || collapseSite >= kSiteCount) {
+        appendAbilityNote(message, messageSize, "The clinic saves the body, but the glow stays expensive.");
+        return;
+    }
+
+    const uint8_t scar = random(0, 4);
+    char note[150];
+    if (scar == 0 && siteLead[collapseSite] != LeadKind::None) {
+        siteLead[collapseSite] = LeadKind::None;
+        snprintf(note, sizeof(note), "The clinic saves the body. The lead at %s does not wait.",
+                 sites[collapseSite].name);
+    } else if (scar <= 1) {
+        siteAttention[collapseSite] = clampInt(siteAttention[collapseSite] + 2, 0, kMaxSiteAttention);
+        snprintf(note, sizeof(note), "%s learns the shape of your collapse. Attention rises.",
+                 sites[collapseSite].name);
+    } else if (scar == 2 && siteCache[collapseSite] > 0) {
+        --siteCache[collapseSite];
+        snprintf(note, sizeof(note), "Someone reaches %s before you wake. One cache is gone.",
+                 sites[collapseSite].name);
+    } else {
+        siteIntel[collapseSite] = siteIntel[collapseSite] > 0 ? static_cast<uint8_t>(siteIntel[collapseSite] - 1) : 0;
+        snprintf(note, sizeof(note), "Your notes from %s come back damp, partial, and hard to trust.",
+                 sites[collapseSite].name);
+    }
+    appendAbilityNote(message, messageSize, note);
+}
+
 void checkCollapse() {
     if (health > 0 && exposure < kMaxExposure) {
         return;
@@ -2612,19 +2700,21 @@ void checkCollapse() {
         return;
     }
 
+    const uint8_t collapseSite = currentSite;
     currentSite = 0;
     timeTick = 0;
     if (coolSitesForNewDay()) {
         clearPinnedLead();
     }
     day += 1;
-    health = 5;
-    exposure = 3;
-    const int16_t paid = payTradeValue(6);
-    char message[180];
+    health = 4;
+    exposure = 5;
+    const int16_t paid = payTradeValue(8);
+    char message[320];
     snprintf(message, sizeof(message),
-             "You wake under clinic lights with your boots still wet. Collapse care took goods worth %d and a little pride.",
+             "You wake under clinic lights with your boots still wet. Collapse care took goods worth %d and left the glow in your teeth.",
              paid);
+    applyCollapseScar(collapseSite, message, sizeof(message));
     setStatus(message);
 }
 
@@ -2842,6 +2932,11 @@ void resolveFieldAction(UiAction action) {
     OutcomeLevel outcome = outcomeForRoll(total, target);
     char abilityNote[220];
     describeActionAbilities(action, lead, abilityNote, sizeof(abilityNote));
+    if (outcome == OutcomeLevel::Full && exposure >= 10 && !exposureProtectionActive()) {
+        outcome = OutcomeLevel::Success;
+        appendAbilityNote(abilityNote, sizeof(abilityNote),
+                          "Sick light keeps this from becoming clean; iodine or blue milk would steady the edge.");
+    }
 
     bool railForced = false;
     bool quietSaved = false;
@@ -3242,6 +3337,9 @@ void resolveFieldAction(UiAction action) {
     if (blueMilkBlurReady) {
         blueMilkBlurReady = false;
     }
+    if (iodineShieldReady) {
+        iodineShieldReady = false;
+    }
     if (hasPinnedLead() && pinnedLeadSite == actionSite && siteLead[actionSite] != pinnedLead) {
         clearPinnedLead();
     }
@@ -3319,6 +3417,36 @@ void travelToSite(uint8_t targetSite) {
 }
 
 // Resting at the clinic heals; resting elsewhere retreats to the safe berth.
+void properClinicTreatment() {
+    if (currentSite != 0) {
+        setStatus("Proper treatment only happens under clinic lights, with a tray and a locked cabinet.");
+        return;
+    }
+
+    const int16_t supplySlot = firstClinicTreatmentSlot();
+    if (supplySlot < 0) {
+        setStatus("Proper treatment needs Iodine, Black Iodine, Blue Milk, or a Med Pack. Barter alone stays in the cheap ward.");
+        return;
+    }
+
+    const uint8_t itemId = static_cast<uint8_t>(inventory[supplySlot]);
+    const char* supplyName = itemCatalog[itemId].name;
+    removeInventorySlot(static_cast<uint8_t>(supplySlot));
+    health = clampInt(health + 5, 0, kMaxHealth);
+    exposure = clampInt(exposure - 5, 0, kMaxExposure);
+    iodineShieldReady = false;
+    blackIodineGuard = false;
+    blueMilkBlurReady = false;
+
+    char message[220];
+    snprintf(message, sizeof(message),
+             "The orderly opens the good cabinet and spends %s. Proper treatment restores body and cuts the glow down.",
+             supplyName);
+    startNewDay(message);
+    checkCollapse();
+    openQueuedDialogue(Screen::Field);
+}
+
 void restOrRetreat() {
     if (currentSite != 0) {
         currentSite = 0;
@@ -3331,11 +3459,11 @@ void restOrRetreat() {
     }
 
     const int16_t paid = payTradeValue(2);
-    health = clampInt(health + 4, 0, kMaxHealth);
-    exposure = clampInt(exposure - 4, 0, kMaxExposure);
+    health = clampInt(health + 3, 0, kMaxHealth);
+    exposure = clampInt(exposure - 1, 0, kMaxExposure);
     char message[160];
     snprintf(message, sizeof(message),
-             "A cot, a drip bag, and static through the wall. You pay goods worth %d and recover what the city has not taken.",
+             "Cheap rest buys a cot and a dirty drip. Goods worth %d fix what is bleeding; the glow mostly stays.",
              paid);
     startNewDay(message);
     checkCollapse();
@@ -3530,6 +3658,9 @@ void handleAction(UiAction action, int16_t param) {
         case UiAction::Travel:
             travelToSite(static_cast<uint8_t>(param));
             break;
+        case UiAction::ProperTreatment:
+            properClinicTreatment();
+            break;
         case UiAction::Rest:
             restOrRetreat();
             break;
@@ -3585,21 +3716,25 @@ void drawFieldScreen() {
     if (currentSite == 0) {
         addButton("Trade", gap, buttonY + 8, buttonW, 52, UiAction::OpenTrade, 0, rgb(90, 210, 220),
                   tradeAvailableHere());
+        addButton("Treat", gap * 2 + buttonW, buttonY + 8, buttonW, 52, UiAction::ProperTreatment, 0,
+                  rgb(120, 220, 160), clinicTreatmentAvailable());
+        addButton("Board", gap * 3 + buttonW * 2, buttonY + 8, buttonW, 52, UiAction::None, 0,
+                  rgb(160, 160, 170), false);
     } else {
         addButton("Observe 2h", gap, buttonY + 8, buttonW, 52, UiAction::Observe, 0, rgb(90, 210, 220),
                   fieldActionAvailable(UiAction::Observe));
+        addButton("Explore 4h", gap * 2 + buttonW, buttonY + 8, buttonW, 52, UiAction::Explore, 0,
+                  rgb(230, 180, 70), fieldActionAvailable(UiAction::Explore));
+        char leadButton[24];
+        snprintf(leadButton, sizeof(leadButton), "%s 2h", leadVerb(siteLead[currentSite]));
+        addButton(leadButton, gap * 3 + buttonW * 2, buttonY + 8, buttonW, 52, UiAction::FollowLead, 0,
+                  rgb(220, 90, 190), fieldActionAvailable(UiAction::FollowLead));
     }
-    addButton("Explore 4h", gap * 2 + buttonW, buttonY + 8, buttonW, 52, UiAction::Explore, 0, rgb(230, 180, 70),
-              fieldActionAvailable(UiAction::Explore));
-    char leadButton[24];
-    snprintf(leadButton, sizeof(leadButton), "%s 2h", leadVerb(siteLead[currentSite]));
-    addButton(leadButton, gap * 3 + buttonW * 2, buttonY + 8, buttonW, 52, UiAction::FollowLead, 0,
-              rgb(220, 90, 190), fieldActionAvailable(UiAction::FollowLead));
     addButton("Kit", gap * 4 + buttonW * 3, buttonY + 8, buttonW, 52, UiAction::Inventory, 0, rgb(170, 120, 240));
     addButton("Map", gap * 5 + buttonW * 4, buttonY + 8, buttonW, 52, UiAction::Map, 0, rgb(120, 220, 120));
     addButton("Leads", gap * 6 + buttonW * 5, buttonY + 8, buttonW, 52, UiAction::Tracker, 0, rgb(130, 230, 200));
-    addButton(currentSite == 0 ? "Rest" : "Retreat", gap * 7 + buttonW * 6, buttonY + 8, buttonW, 52, UiAction::Rest,
-              0, rgb(230, 90, 95));
+    addButton(currentSite == 0 ? "Rest 2v" : "Retreat", gap * 7 + buttonW * 6, buttonY + 8, buttonW, 52,
+              UiAction::Rest, 0, rgb(230, 90, 95));
 
     for (uint8_t i = 0; i < buttonCount; ++i) {
         drawButton(buttons[i]);
@@ -3642,7 +3777,10 @@ void drawActionDetailScreen() {
     const LeadKind lead = siteLead[currentSite];
     const int16_t skill = actionSkill(action, stats);
     const int16_t target = actionTarget(action);
-    const uint8_t cleanChance = chanceForThreshold(skill, target + 3);
+    uint8_t cleanChance = chanceForThreshold(skill, target + 3);
+    if (exposure >= 10 && !exposureProtectionActive()) {
+        cleanChance = 0;
+    }
     const uint8_t safeChance = chanceForThreshold(skill, target);
     const uint8_t partialChance = chanceForThreshold(skill, target - 2);
     const uint8_t failChance = static_cast<uint8_t>(100 - partialChance);
@@ -5045,6 +5183,7 @@ void initializeGame() {
     calendarSpent = false;
     ghostTeaSite = 255;
     blackIodineGuard = false;
+    iodineShieldReady = false;
     sleeplessMintReady = false;
     fenceSaltReady = false;
     cheapCourageReady = false;
