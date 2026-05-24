@@ -51,6 +51,7 @@ struct Site {
     const char* district;
     const char* description;
     uint8_t risk;
+    uint8_t maxCache;
     uint16_t color;
 };
 
@@ -78,9 +79,16 @@ struct Button {
 
 constexpr uint8_t kInventoryCapacity = 12;
 constexpr uint8_t kEquipSlotCount = 5;
+constexpr uint8_t kSiteCapacity = 5;
 constexpr uint8_t kMaxButtons = 24;
 constexpr int16_t kMaxHealth = 10;
 constexpr int16_t kMaxExposure = 12;
+constexpr uint8_t kMaxTimeTicks = 8;
+constexpr uint8_t kDayStartHour = 7;
+constexpr uint8_t kTickHours = 2;
+constexpr uint8_t kMaxSiteIntel = 3;
+constexpr uint8_t kMaxSiteHeat = 6;
+constexpr int16_t kDailyUpkeep = 4;
 
 Screen currentScreen = Screen::Field;
 int16_t health = 9;
@@ -88,7 +96,10 @@ int16_t exposure = 0;
 int16_t scrap = 8;
 uint16_t day = 1;
 uint8_t currentSite = 0;
-uint8_t actionsTaken = 0;
+uint8_t timeTick = 0;
+uint8_t siteHeat[kSiteCapacity];
+uint8_t siteCache[kSiteCapacity];
+uint8_t siteIntel[kSiteCapacity];
 int16_t inventory[kInventoryCapacity];
 int16_t equipped[kEquipSlotCount];
 Button buttons[kMaxButtons];
@@ -120,15 +131,16 @@ Item itemCatalog[] = {
 };
 
 Site sites[] = {
-    {"Underpass Clinic", "safe berth", "A medic shack below the ring road. Warm bulbs, bad coffee, guarded doors.", 1, 0},
-    {"Neon Spillway", "wet market", "Old ad towers bleed color through toxic rain and illegal stalls.", 3, 0},
-    {"Sunken Mall", "retail tomb", "Escalators vanish into black water. Something below keeps the music playing.", 4, 0},
-    {"Relay Grave", "antenna field", "Fallen towers tick in the wind. Messages still arrive for the dead.", 5, 0},
-    {"Black Reed Verge", "outer exclusion", "A reed sea grown through asphalt. Every shadow looks freshly made.", 6, 0},
+    {"Underpass Clinic", "safe berth", "A medic shack below the ring road. Warm bulbs, bad coffee, guarded doors.", 1, 0, 0},
+    {"Neon Spillway", "wet market", "Old ad towers bleed color through toxic rain and illegal stalls.", 3, 4, 0},
+    {"Sunken Mall", "retail tomb", "Escalators vanish into black water. Something below keeps the music playing.", 4, 5, 0},
+    {"Relay Grave", "antenna field", "Fallen towers tick in the wind. Messages still arrive for the dead.", 5, 4, 0},
+    {"Black Reed Verge", "outer exclusion", "A reed sea grown through asphalt. Every shadow looks freshly made.", 6, 3, 0},
 };
 
 constexpr uint8_t kItemCount = sizeof(itemCatalog) / sizeof(itemCatalog[0]);
 constexpr uint8_t kSiteCount = sizeof(sites) / sizeof(sites[0]);
+static_assert(kSiteCount <= kSiteCapacity, "site state arrays need more capacity");
 
 int clampInt(int value, int low, int high) {
     if (value < low) {
@@ -206,6 +218,153 @@ Stats deriveStats() {
     stats.filter = clampInt(stats.filter, 0, 9);
     stats.strain = clampInt(stats.strain, 0, 9);
     return stats;
+}
+
+uint8_t currentHour() {
+    return static_cast<uint8_t>(kDayStartHour + timeTick * kTickHours);
+}
+
+uint8_t timeRemainingTicks() {
+    return timeTick < kMaxTimeTicks ? static_cast<uint8_t>(kMaxTimeTicks - timeTick) : 0;
+}
+
+int16_t effectiveRiskForSite(uint8_t siteIndex) {
+    if (siteIndex == 0 || siteIndex >= kSiteCount) {
+        return sites[0].risk;
+    }
+
+    const int16_t duskPressure = timeTick >= 6 ? 1 : 0;
+    return clampInt(sites[siteIndex].risk + siteHeat[siteIndex] / 2 - siteIntel[siteIndex] + duskPressure, 1, 9);
+}
+
+uint8_t actionTimeCost(UiAction action) {
+    switch (action) {
+        case UiAction::Scout:
+        case UiAction::Sneak:
+        case UiAction::Travel:
+        case UiAction::Rest:
+            return 1;
+        case UiAction::Scavenge:
+            return 2;
+        default:
+            return 0;
+    }
+}
+
+const char* actionCheckText(UiAction action) {
+    switch (action) {
+        case UiAction::Scout:
+            return "SCAN+TECH";
+        case UiAction::Scavenge:
+            return "GRIT+FILTER";
+        case UiAction::Sneak:
+            return "GHOST+SCAN";
+        default:
+            return "--";
+    }
+}
+
+const char* actionLabel(UiAction action) {
+    switch (action) {
+        case UiAction::Scout:
+            return "Scout";
+        case UiAction::Scavenge:
+            return "Scavenge";
+        case UiAction::Sneak:
+            return "Sneak";
+        default:
+            return "Move";
+    }
+}
+
+const char* actionPayoffText(UiAction action) {
+    switch (action) {
+        case UiAction::Scout:
+            return "intel";
+        case UiAction::Scavenge:
+            return "salvage";
+        case UiAction::Sneak:
+            return "low heat";
+        default:
+            return "";
+    }
+}
+
+const char* actionBlockedText(UiAction action) {
+    if (currentSite == 0) {
+        return "travel";
+    }
+    if (timeRemainingTicks() < actionTimeCost(action)) {
+        return "no light";
+    }
+    if (action == UiAction::Scout && siteIntel[currentSite] >= kMaxSiteIntel) {
+        return "mapped";
+    }
+    if ((action == UiAction::Scavenge || action == UiAction::Sneak) && siteCache[currentSite] == 0) {
+        return "dry";
+    }
+    return "";
+}
+
+int16_t actionSkill(UiAction action, const Stats& stats) {
+    switch (action) {
+        case UiAction::Scout:
+            return stats.scan + stats.tech;
+        case UiAction::Scavenge:
+            return stats.grit + stats.filter;
+        case UiAction::Sneak:
+            return stats.ghost + stats.scan;
+        default:
+            return 0;
+    }
+}
+
+int16_t actionTarget(UiAction action) {
+    int16_t target = 5 + effectiveRiskForSite(currentSite);
+    if (action == UiAction::Scavenge) {
+        target += 1;
+    }
+    if (action == UiAction::Sneak && siteHeat[currentSite] > 0) {
+        target += 1;
+    }
+    return target;
+}
+
+int16_t actionExposureCost(UiAction action, const Stats& stats) {
+    int16_t dose = clampInt((effectiveRiskForSite(currentSite) + stats.strain - stats.filter) / 3, 0, 4);
+    if (action == UiAction::Scout) {
+        dose = clampInt(dose - 1, 0, 4);
+    } else if (action == UiAction::Scavenge) {
+        dose = clampInt(dose + 1, 0, 5);
+    }
+    return dose;
+}
+
+uint8_t successChance(int16_t skill, int16_t target) {
+    const int16_t needed = target - skill;
+    if (needed <= 1) {
+        return 100;
+    }
+    if (needed > 6) {
+        return 0;
+    }
+    return static_cast<uint8_t>((7 - needed) * 100 / 6);
+}
+
+bool fieldActionAvailable(UiAction action) {
+    if (currentSite == 0) {
+        return false;
+    }
+    if (timeRemainingTicks() < actionTimeCost(action)) {
+        return false;
+    }
+    if (action == UiAction::Scout) {
+        return siteIntel[currentSite] < kMaxSiteIntel;
+    }
+    if (action == UiAction::Scavenge || action == UiAction::Sneak) {
+        return siteCache[currentSite] > 0;
+    }
+    return true;
 }
 
 void setStatus(const char* text) {
@@ -403,8 +562,13 @@ void drawHeader() {
 
     display.setFont(&fonts::Font2);
     display.setTextColor(rgb(180, 190, 190), bg);
-    display.setCursor(width - 330, 16);
-    display.printf("Day %u  scrap %d  site risk %u", static_cast<unsigned>(day), scrap, sites[currentSite].risk);
+    display.setCursor(width - 430, 16);
+    display.printf("Day %u  %02u:00  scrap %d  dusk in %uh", static_cast<unsigned>(day),
+                   static_cast<unsigned>(currentHour()), scrap,
+                   static_cast<unsigned>(timeRemainingTicks() * kTickHours));
+    display.setCursor(width - 430, 38);
+    display.printf("bill %d at dawn  risk %d  cache %u  heat %u", kDailyUpkeep, effectiveRiskForSite(currentSite),
+                   siteCache[currentSite], siteHeat[currentSite]);
 }
 
 void drawStatsPanel(int32_t x, int32_t y, int32_t w, int32_t h) {
@@ -417,27 +581,25 @@ void drawStatsPanel(int32_t x, int32_t y, int32_t w, int32_t h) {
     display.setTextColor(TFT_WHITE, bg);
     display.drawString("Runner", x + 14, y + 12);
 
-    drawMeter(x + 16, y + 68, w - 32, 16, health, kMaxHealth, rgb(230, 80, 90), "Body");
-    drawMeter(x + 16, y + 122, w - 32, 16, exposure, kMaxExposure, rgb(170, 230, 80), "Exposure");
+    drawMeter(x + 16, y + 56, w - 32, 14, health, kMaxHealth, rgb(230, 80, 90), "Body");
+    drawMeter(x + 16, y + 102, w - 32, 14, exposure, kMaxExposure, rgb(170, 230, 80), "Exposure");
+    drawMeter(x + 16, y + 148, w - 32, 14, timeTick, kMaxTimeTicks, rgb(230, 180, 70), "Clock");
 
-    const int32_t statY = y + 166;
+    const int32_t statY = y + 180;
     display.setFont(&fonts::Font2);
     display.setTextColor(rgb(220, 230, 225), bg);
     display.setCursor(x + 18, statY);
-    display.printf("GRIT   %d", stats.grit);
-    display.setCursor(x + 18, statY + 26);
-    display.printf("TECH   %d", stats.tech);
-    display.setCursor(x + 18, statY + 52);
-    display.printf("SCAN   %d", stats.scan);
-    display.setCursor(x + 18, statY + 78);
-    display.printf("GHOST  %d", stats.ghost);
-    display.setCursor(x + 18, statY + 104);
-    display.printf("FILTER %d", stats.filter);
-    display.setCursor(x + 18, statY + 130);
-    display.printf("STRAIN %d", stats.strain);
-
-    display.setTextColor(rgb(135, 150, 150), bg);
-    display.drawString("No levels. Only kit.", x + 18, y + h - 32);
+    display.printf("GRIT breach  %d", stats.grit);
+    display.setCursor(x + 18, statY + 22);
+    display.printf("TECH bypass  %d", stats.tech);
+    display.setCursor(x + 18, statY + 44);
+    display.printf("SCAN anomaly %d", stats.scan);
+    display.setCursor(x + 18, statY + 66);
+    display.printf("GHOST heat   %d", stats.ghost);
+    display.setCursor(x + 18, statY + 88);
+    display.printf("FILTER dose  %d", stats.filter);
+    display.setCursor(x + 18, statY + 110);
+    display.printf("STRAIN weird %d", stats.strain);
 }
 
 void drawEquippedList(int32_t x, int32_t y, int32_t w, int32_t h) {
@@ -488,8 +650,50 @@ void drawPackPreview(int32_t x, int32_t y, int32_t w, int32_t h) {
     }
 }
 
+void drawActionForecast(int32_t x, int32_t y, int32_t w, int32_t h) {
+    auto& display = M5.Display;
+    const uint16_t bg = rgb(8, 12, 17);
+    const Stats stats = deriveStats();
+    const UiAction actions[] = {UiAction::Scout, UiAction::Scavenge, UiAction::Sneak};
+
+    drawPanel(x, y, w, h, rgb(190, 70, 150));
+    display.setFont(&fonts::Font4);
+    display.setTextColor(TFT_WHITE, bg);
+    display.drawString("Move Forecast", x + 14, y + 12);
+
+    display.setFont(&fonts::Font2);
+    display.setTextColor(rgb(150, 168, 170), bg);
+    display.setCursor(x + 16, y + 48);
+    display.printf("cache %u/%u  intel %u/%u  heat %u/%u", siteCache[currentSite], sites[currentSite].maxCache,
+                   siteIntel[currentSite], kMaxSiteIntel, siteHeat[currentSite], kMaxSiteHeat);
+
+    for (uint8_t i = 0; i < 3; ++i) {
+        const UiAction action = actions[i];
+        const int32_t rowY = y + 82 + i * 70;
+        const bool enabled = fieldActionAvailable(action);
+        const uint16_t rowBg = enabled ? rgb(12, 18, 24) : rgb(16, 16, 18);
+        const uint16_t border = enabled ? rgb(90, 210, 220) : rgb(58, 58, 62);
+        const int16_t skill = actionSkill(action, stats);
+        const int16_t target = actionTarget(action);
+        const uint8_t chance = successChance(skill, target);
+
+        display.fillRoundRect(x + 14, rowY, w - 28, 58, 6, rowBg);
+        display.drawRoundRect(x + 14, rowY, w - 28, 58, 6, border);
+        display.setTextColor(enabled ? TFT_WHITE : rgb(110, 115, 120), rowBg);
+        display.drawString(actionLabel(action), x + 26, rowY + 8);
+        display.setTextColor(enabled ? rgb(180, 210, 205) : rgb(95, 100, 102), rowBg);
+        display.setCursor(x + 126, rowY + 8);
+        display.printf("%s %d/%d", actionCheckText(action), skill, target);
+        display.setCursor(x + 26, rowY + 30);
+        display.printf("%u%%  %uh  dose +%d", chance, static_cast<unsigned>(actionTimeCost(action) * kTickHours),
+                       actionExposureCost(action, stats));
+        display.setCursor(x + 166, rowY + 30);
+        display.print(enabled ? actionPayoffText(action) : actionBlockedText(action));
+    }
+}
+
 uint8_t randomLootForAction(UiAction action) {
-    const uint8_t risk = sites[currentSite].risk;
+    const uint8_t risk = static_cast<uint8_t>(effectiveRiskForSite(currentSite));
     const bool rare = random(0, 100) < (18 + risk * 5);
     if (rare && risk >= 4) {
         const uint8_t artifacts[] = {9, 10, 11, 14};
@@ -509,92 +713,179 @@ uint8_t randomLootForAction(UiAction action) {
     return scavengeLoot[random(0, sizeof(scavengeLoot) / sizeof(scavengeLoot[0]))];
 }
 
+uint8_t actionHeatGain(UiAction action, bool success) {
+    switch (action) {
+        case UiAction::Scout:
+            return success ? 1 : 2;
+        case UiAction::Scavenge:
+            return success ? 3 : 4;
+        case UiAction::Sneak:
+            return success ? 0 : 2;
+        default:
+            return 0;
+    }
+}
+
+void coolSitesForNewDay() {
+    for (uint8_t i = 1; i < kSiteCount; ++i) {
+        siteHeat[i] = siteHeat[i] > 2 ? static_cast<uint8_t>(siteHeat[i] - 2) : 0;
+        siteIntel[i] = siteIntel[i] > 0 ? static_cast<uint8_t>(siteIntel[i] - 1) : 0;
+        if (siteCache[i] < sites[i].maxCache) {
+            ++siteCache[i];
+        }
+    }
+}
+
+void startNewDay(const char* lead) {
+    ++day;
+    timeTick = 0;
+    currentSite = 0;
+    coolSitesForNewDay();
+
+    char bill[80];
+    if (scrap >= kDailyUpkeep) {
+        scrap -= kDailyUpkeep;
+        snprintf(bill, sizeof(bill), "Clinic meter paid: -%d scrap.", kDailyUpkeep);
+    } else {
+        const int16_t shortfall = kDailyUpkeep - scrap;
+        scrap = 0;
+        health = clampInt(health - shortfall, 0, kMaxHealth);
+        exposure = clampInt(exposure + shortfall, 0, kMaxExposure);
+        snprintf(bill, sizeof(bill), "Short on rent. Debt collectors take it out of your body.");
+    }
+
+    char message[192];
+    snprintf(message, sizeof(message), "%s %s", lead, bill);
+    setStatus(message);
+}
+
+void spendTime(uint8_t ticks) {
+    timeTick = static_cast<uint8_t>(timeTick + ticks);
+    if (timeTick < kMaxTimeTicks) {
+        screenDirty = true;
+        return;
+    }
+
+    char lead[128];
+    if (currentSite != 0) {
+        const Stats stats = deriveStats();
+        const int16_t risk = effectiveRiskForSite(currentSite);
+        const int16_t nightDose = clampInt((risk + stats.strain - stats.filter) / 2, 1, 5);
+        const int16_t wound = clampInt(risk / 3, 1, 3);
+        exposure = clampInt(exposure + nightDose, 0, kMaxExposure);
+        health = clampInt(health - wound, 0, kMaxHealth);
+        snprintf(lead, sizeof(lead), "Curfew sirens lock the district. You flee through black rain.");
+    } else {
+        snprintf(lead, sizeof(lead), "Dawn leaks through the clinic shutters.");
+    }
+    startNewDay(lead);
+}
+
 void checkCollapse() {
     if (health > 0 && exposure < kMaxExposure) {
         return;
     }
 
     currentSite = 0;
+    timeTick = 0;
+    coolSitesForNewDay();
     day += 1;
     health = 5;
     exposure = 3;
-    scrap = clampInt(scrap - 5, 0, 999);
-    setStatus("You wake under clinic lights with your boots still wet. The bill is missing from your pocket.");
+    scrap = clampInt(scrap - 6, 0, 999);
+    setStatus("You wake under clinic lights with your boots still wet. Collapse care cost 6 scrap and a little pride.");
 }
 
 void resolveFieldAction(UiAction action) {
+    if (!fieldActionAvailable(action)) {
+        setStatus("That move is no longer sensible here. The clock, the cache, or the route says no.");
+        return;
+    }
+
     const Stats stats = deriveStats();
     const Site& site = sites[currentSite];
-    int16_t skill = 0;
+    const int16_t skill = actionSkill(action, stats);
+    const int16_t target = actionTarget(action);
+    const int16_t total = skill + random(1, 7);
+    const int16_t ambientDose = actionExposureCost(action, stats);
+    const bool success = total >= target;
     const char* verb = "";
 
     if (action == UiAction::Scout) {
-        skill = stats.scan + stats.tech;
         verb = "scouted";
     } else if (action == UiAction::Scavenge) {
-        skill = stats.grit + stats.filter;
         verb = "scavenged";
     } else if (action == UiAction::Sneak) {
-        skill = stats.ghost + stats.scan;
         verb = "moved quiet through";
     } else {
         return;
     }
 
-    const int16_t roll = random(1, 7);
-    const int16_t target = 5 + site.risk;
-    const int16_t total = skill + roll;
-    const int16_t ambientDose = clampInt((site.risk + stats.strain - stats.filter) / 3, 0, 4);
     exposure = clampInt(exposure + ambientDose, 0, kMaxExposure);
-    ++actionsTaken;
+    siteHeat[currentSite] = clampInt(siteHeat[currentSite] + actionHeatGain(action, success), 0, kMaxSiteHeat);
 
     char message[192];
-    if (total >= target) {
+    if (success && action == UiAction::Scout) {
+        siteIntel[currentSite] = clampInt(siteIntel[currentSite] + 1, 0, kMaxSiteIntel);
+        const int16_t gain = random(0, 3);
+        scrap += gain;
+        snprintf(message, sizeof(message),
+                 "You %s %s. %s %d vs %d. Intel +1, heat +%u, +%d scrap. Cache reads %u.",
+                 verb, site.name, actionCheckText(action), total, target, actionHeatGain(action, success), gain,
+                 siteCache[currentSite]);
+    } else if (success) {
+        if (siteCache[currentSite] > 0) {
+            --siteCache[currentSite];
+        }
         const uint8_t itemId = randomLootForAction(action);
         const bool duplicate = hasCatalogItem(itemId) && itemCatalog[itemId].slot != Slot::Consumable;
-        const int16_t gain = site.risk + random(1, 5);
+        const int16_t gain = effectiveRiskForSite(currentSite) + random(1, 5) + (action == UiAction::Scavenge ? 2 : 0);
         scrap += gain;
 
         if (!duplicate && random(0, 100) < 62) {
             char itemMessage[112];
             addItem(itemId, itemMessage, sizeof(itemMessage));
-            snprintf(message, sizeof(message), "You %s %s cleanly. +%d scrap. %s", verb, site.name, gain, itemMessage);
+            snprintf(message, sizeof(message), "You %s %s. %s %d vs %d. +%d scrap. %s Cache %u.",
+                     verb, site.name, actionCheckText(action), total, target, gain, itemMessage, siteCache[currentSite]);
         } else {
             scrap += itemCatalog[itemId].value / 3;
-            snprintf(message, sizeof(message), "You %s %s cleanly. +%d scrap, plus fenceable salvage.", verb, site.name,
-                     gain);
+            snprintf(message, sizeof(message),
+                     "You %s %s. %s %d vs %d. +%d scrap, plus fenceable salvage. Cache %u.",
+                     verb, site.name, actionCheckText(action), total, target, gain, siteCache[currentSite]);
         }
     } else {
-        const int16_t wound = action == UiAction::Sneak ? 2 : 1;
-        const int16_t dose = 1 + site.risk / 3;
+        const int16_t wound = action == UiAction::Sneak ? 2 : 1 + effectiveRiskForSite(currentSite) / 5;
+        const int16_t dose = 1 + effectiveRiskForSite(currentSite) / 3;
         health = clampInt(health - wound, 0, kMaxHealth);
         exposure = clampInt(exposure + dose, 0, kMaxExposure);
-        snprintf(message, sizeof(message), "%s bites back. Check %d vs %d. -%d body, +%d exposure.", site.name, total,
-                 target, wound, dose);
-    }
-
-    if (actionsTaken >= 4) {
-        actionsTaken = 0;
-        ++day;
+        snprintf(message, sizeof(message),
+                 "%s bites back. %s %d vs %d. Heat +%u, -%d body, +%d exposure.",
+                 site.name, actionCheckText(action), total, target, actionHeatGain(action, success), wound, dose);
     }
 
     setStatus(message);
+    spendTime(actionTimeCost(action));
     checkCollapse();
 }
 
 void travel() {
     const Stats stats = deriveStats();
+    if (timeRemainingTicks() < actionTimeCost(UiAction::Travel)) {
+        setStatus("There is not enough daylight left for another route. Rest or retreat before curfew decides.");
+        return;
+    }
+
     currentSite = static_cast<uint8_t>((currentSite + 1) % kSiteCount);
-    if (currentSite == 0) {
-        ++day;
-    } else {
+    if (currentSite != 0) {
         exposure = clampInt(exposure + clampInt(sites[currentSite].risk - stats.filter, 0, 2), 0, kMaxExposure);
     }
 
     char message[160];
-    snprintf(message, sizeof(message), "You follow service roads to %s. The city keeps changing behind you.",
-             sites[currentSite].name);
+    snprintf(message, sizeof(message), "You spend %uh on service roads to %s. Cache %u, heat %u, risk now %d.",
+             static_cast<unsigned>(actionTimeCost(UiAction::Travel) * kTickHours), sites[currentSite].name,
+             siteCache[currentSite], siteHeat[currentSite], effectiveRiskForSite(currentSite));
     setStatus(message);
+    spendTime(actionTimeCost(UiAction::Travel));
     checkCollapse();
 }
 
@@ -602,7 +893,9 @@ void restOrRetreat() {
     if (currentSite != 0) {
         currentSite = 0;
         exposure = clampInt(exposure + 1, 0, kMaxExposure);
-        setStatus("You cut the run short and limp back to the clinic before the rain gets clever.");
+        setStatus("You cut the run short and spend time limping back to the clinic before the rain gets clever.");
+        spendTime(actionTimeCost(UiAction::Rest));
+        checkCollapse();
         return;
     }
 
@@ -610,8 +903,8 @@ void restOrRetreat() {
     scrap -= cost;
     health = clampInt(health + 4, 0, kMaxHealth);
     exposure = clampInt(exposure - 4, 0, kMaxExposure);
-    ++day;
-    setStatus("A cot, a drip bag, and static through the wall. You recover what the city has not taken.");
+    startNewDay("A cot, a drip bag, and static through the wall. You recover what the city has not taken.");
+    checkCollapse();
 }
 
 void handleAction(UiAction action, int16_t param) {
@@ -656,13 +949,13 @@ void drawFieldScreen() {
     const int32_t bottomH = 72;
     const int32_t contentH = height - top - bottomH - margin;
     const int32_t leftW = 238;
-    const int32_t rightW = 268;
+    const int32_t rightW = 286;
     const int32_t centerX = margin + leftW + 14;
     const int32_t centerW = width - centerX - rightW - 2 * margin;
     const uint16_t panelBg = rgb(8, 12, 17);
 
     drawStatsPanel(margin, top, leftW, contentH);
-    drawPackPreview(width - margin - rightW, top, rightW, contentH);
+    drawActionForecast(width - margin - rightW, top, rightW, contentH);
 
     drawPanel(centerX, top, centerW, contentH, sites[currentSite].color);
     display.setFont(&fonts::Font4);
@@ -673,6 +966,11 @@ void drawFieldScreen() {
     display.drawString(sites[currentSite].district, centerX + 20, top + 52);
     drawWrappedText(sites[currentSite].description, centerX + 20, top + 88, centerW - 40, 3, rgb(210, 218, 210),
                     panelBg);
+    display.setFont(&fonts::Font2);
+    display.setTextColor(rgb(180, 210, 205), panelBg);
+    display.setCursor(centerX + 20, top + 156);
+    display.printf("risk %d  cache %u  intel %u  heat %u", effectiveRiskForSite(currentSite), siteCache[currentSite],
+                   siteIntel[currentSite], siteHeat[currentSite]);
 
     display.drawFastHLine(centerX + 18, top + 176, centerW - 36, rgb(55, 70, 70));
     display.setFont(&fonts::Font4);
@@ -683,11 +981,15 @@ void drawFieldScreen() {
     const int32_t buttonY = height - bottomH;
     const int32_t gap = 10;
     const int32_t buttonW = (width - gap * 7) / 6;
-    addButton("Scout", gap, buttonY + 8, buttonW, 52, UiAction::Scout, 0, rgb(90, 210, 220));
-    addButton("Scavenge", gap * 2 + buttonW, buttonY + 8, buttonW, 52, UiAction::Scavenge, 0, rgb(230, 180, 70));
-    addButton("Sneak", gap * 3 + buttonW * 2, buttonY + 8, buttonW, 52, UiAction::Sneak, 0, rgb(220, 90, 190));
+    addButton("Scout 2h", gap, buttonY + 8, buttonW, 52, UiAction::Scout, 0, rgb(90, 210, 220),
+              fieldActionAvailable(UiAction::Scout));
+    addButton("Scav 4h", gap * 2 + buttonW, buttonY + 8, buttonW, 52, UiAction::Scavenge, 0, rgb(230, 180, 70),
+              fieldActionAvailable(UiAction::Scavenge));
+    addButton("Sneak 2h", gap * 3 + buttonW * 2, buttonY + 8, buttonW, 52, UiAction::Sneak, 0, rgb(220, 90, 190),
+              fieldActionAvailable(UiAction::Sneak));
     addButton("Kit", gap * 4 + buttonW * 3, buttonY + 8, buttonW, 52, UiAction::Inventory, 0, rgb(170, 120, 240));
-    addButton("Travel", gap * 5 + buttonW * 4, buttonY + 8, buttonW, 52, UiAction::Travel, 0, rgb(120, 220, 120));
+    addButton("Travel 2h", gap * 5 + buttonW * 4, buttonY + 8, buttonW, 52, UiAction::Travel, 0, rgb(120, 220, 120),
+              timeRemainingTicks() >= actionTimeCost(UiAction::Travel));
     addButton(currentSite == 0 ? "Rest" : "Retreat", gap * 6 + buttonW * 5, buttonY + 8, buttonW, 52, UiAction::Rest,
               0, rgb(230, 90, 95));
 
@@ -814,6 +1116,11 @@ void initializeGame() {
     }
     for (uint8_t i = 0; i < kEquipSlotCount; ++i) {
         equipped[i] = -1;
+    }
+    for (uint8_t i = 0; i < kSiteCount; ++i) {
+        siteHeat[i] = 0;
+        siteIntel[i] = 0;
+        siteCache[i] = sites[i].maxCache;
     }
 
     inventory[0] = 0;

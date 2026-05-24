@@ -13,8 +13,10 @@ Neon Exclusion is an original cyberpunk/post-apocalyptic survival adventure abou
 
 - Touch UI with field and inventory screens.
 - Item-driven stats: GRIT, TECH, SCAN, GHOST, FILTER, and STRAIN are derived from equipped gear.
-- Runs through unsafe sites with Scout, Scavenge, and Sneak actions.
+- Runs through unsafe sites with Scout, Scavenge, and Sneak actions that test specific stat pairs.
 - Exposure, body health, scrap, day count, travel, retreat, rest, consumables, and loot.
+- Time pressure: each field move spends daylight, curfew punishes late runs, and the clinic bill is due every dawn.
+- Site pressure: scouting builds limited intel, scavenging drains finite cache, and noisy actions build heat that raises risk.
 - Inventory taps equip gear or consume doses.
 
 ## Design Direction
@@ -23,6 +25,7 @@ Neon Exclusion is an original cyberpunk/post-apocalyptic survival adventure abou
 - Better abilities come from suits, detectors, tools, weapons, artifacts, drugs, maps, contacts, and vehicle modules.
 - Artifacts should be powerful but costly, usually adding STRAIN or other narrative risk.
 - The world should feel near-apocalyptic: failing infrastructure, black-market clinics, poisoned rain, corporate remnants, cult signals, and frontier scavengers.
+- Good play should mean choosing which risk to spend time on, not repeating the safest action forever.
 
 ## Commands
 
