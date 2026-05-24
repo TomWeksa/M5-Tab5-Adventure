@@ -3,152 +3,17 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "GameContent.h"
+#include "GameTypes.h"
+
 namespace {
 
-enum class Screen : uint8_t {
-    Field,
-    Inventory,
-    ItemDetail,
-    Map,
-};
-
-enum class Slot : uint8_t {
-    Suit,
-    Detector,
-    Tool,
-    Weapon,
-    Artifact,
-    Consumable,
-};
-
-enum class ItemImageKind : uint8_t {
-    PatchMask,
-    RubberTrench,
-    MirrorweaveCoat,
-    CoilDetector,
-    GlassNeedle,
-    PrybarKit,
-    SolderRig,
-    QuietNailgun,
-    RailPistol,
-    WarmBattery,
-    MourningLens,
-    NullCharm,
-    IodineAmpoule,
-    CannedCoffee,
-    CopperSaint,
-};
-
-enum class ItemUseKind : uint8_t {
-    None,
-    Equip,
-    Consume,
-};
-
-enum class LeadKind : uint8_t {
-    None,
-    Contact,
-    Cache,
-    Anomaly,
-    Door,
-    Trail,
-};
-
-enum class UiAction : uint8_t {
-    None,
-    Observe,
-    Explore,
-    FollowLead,
-    Inventory,
-    Map,
-    SelectSite,
-    BackToField,
-    InspectItem,
-    EquipOrUse,
-    Travel,
-    Rest,
-};
-
-struct ItemUseProfile {
-    ItemUseKind kind;
-    int8_t healthDelta;
-    int8_t exposureDelta;
-    int8_t scrapDelta;
-    bool consumedOnUse;
-    const char* label;
-    const char* resultText;
-};
-
-struct Item {
-    const char* name;
-    const char* tag;
-    Slot slot;
-    ItemImageKind image;
-    int8_t grit;
-    int8_t tech;
-    int8_t scan;
-    int8_t ghost;
-    int8_t filter;
-    int8_t strain;
-    uint8_t value;
-    uint8_t tintR;
-    uint8_t tintG;
-    uint8_t tintB;
-    uint16_t color;
-    ItemUseProfile use;
-    const char* description;
-    const char* fieldRead;
-};
-
-struct Site {
-    const char* name;
-    const char* district;
-    const char* description;
-    uint8_t risk;
-    uint8_t maxCache;
-    uint16_t color;
-};
-
-struct MapPin {
-    uint8_t site;
-    uint16_t xPermille;
-    uint16_t yPermille;
-    const char* callSign;
-    const char* whisper;
-};
-
-struct RouteEdge {
-    uint8_t from;
-    uint8_t to;
-    const char* name;
-};
-
-struct Stats {
-    int16_t grit = 1;
-    int16_t tech = 1;
-    int16_t scan = 0;
-    int16_t ghost = 0;
-    int16_t filter = 0;
-    int16_t strain = 0;
-};
-
-struct Button {
-    int32_t x = 0;
-    int32_t y = 0;
-    int32_t w = 0;
-    int32_t h = 0;
-    UiAction action = UiAction::None;
-    int16_t param = 0;
-    bool enabled = true;
-    bool visible = true;
-    uint16_t accent = TFT_CYAN;
-    char label[28] = "";
-};
-
-constexpr uint8_t kInventoryCapacity = 12;
+// Inventory has no intended gameplay limit for now. This large static backing
+// store simply avoids heap churn on the embedded target.
+constexpr uint8_t kInventoryCapacity = 96;
 constexpr uint8_t kEquipSlotCount = 5;
-constexpr uint8_t kSiteCapacity = 5;
-constexpr uint8_t kMaxButtons = 24;
+constexpr uint8_t kSiteCapacity = 8;
+constexpr uint8_t kMaxButtons = 32;
 constexpr int16_t kMaxHealth = 10;
 constexpr int16_t kMaxExposure = 12;
 constexpr uint8_t kMaxTimeTicks = 8;
@@ -158,6 +23,8 @@ constexpr uint8_t kMaxSiteIntel = 3;
 constexpr uint8_t kMaxSiteHeat = 6;
 constexpr int16_t kDailyUpkeep = 4;
 
+// Runtime state is intentionally plain globals because the Arduino loop is a
+// single-scene program and redraws from this state directly.
 Screen currentScreen = Screen::Field;
 int16_t health = 9;
 int16_t exposure = 0;
@@ -166,6 +33,7 @@ uint16_t day = 1;
 uint8_t currentSite = 0;
 uint8_t selectedMapSite = 1;
 int16_t selectedInventorySlot = 0;
+uint8_t inventoryPage = 0;
 uint8_t timeTick = 0;
 uint8_t siteHeat[kSiteCapacity];
 uint8_t siteCache[kSiteCapacity];
@@ -179,106 +47,12 @@ bool screenDirty = true;
 bool touchWasPressed = false;
 char statusLine[192] = "The rain tastes metallic. Your kit is the only thing between you and the quiet.";
 
+// Converts 8-bit RGB values to the display's 16-bit color format.
 uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
     return M5.Display.color565(r, g, b);
 }
 
-Item itemCatalog[] = {
-    {"Patch Mask", "suit", Slot::Suit, ItemImageKind::PatchMask, 0, 0, 0, 0, 1, 0, 6, 110, 150, 150, 0,
-     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "You settle the mask straps until each breath sounds borrowed."},
-     "A patched respirator and tarred hood. Bad fashion, good filters.",
-     "Worn against weather, bad air, panic sweat, and whatever the rain is learning to become."},
-    {"Rubber Trench", "suit", Slot::Suit, ItemImageKind::RubberTrench, 1, 0, 0, -1, 2, 0, 14, 90, 180, 120, 0,
-     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "The trench coat seals with a rubber sigh and a smell of old cleanup crews."},
-     "Heavy sealed coat from a cleanup crew that never came back.",
-     "Heavy protection for hot rain and sharp debris. It keeps you alive, but not graceful."},
-    {"Mirrorweave Coat", "suit", Slot::Suit, ItemImageKind::MirrorweaveCoat, 0, 1, 0, 2, 1, 0, 18, 190, 90, 210, 0,
-     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "Mirrorweave threads take the light and give back someone less obvious."},
-     "Chameleon threads shimmer under old advert light.",
-     "A stealth coat with firmware in the fabric. Cameras dislike it. So do honest mirrors."},
-    {"Coil Detector", "detector", Slot::Detector, ItemImageKind::CoilDetector, 0, 0, 1, 0, 0, 0, 8, 80, 200, 220, 0,
-     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "The coil wakes with a dry click and begins listening under the pavement."},
-     "Cheap copper loop detector. It screams before the world bends.",
-     "Useful when the world lies visually. Crude, sturdy, and loud enough to keep you cautious."},
-    {"Glass Needle", "detector", Slot::Detector, ItemImageKind::GlassNeedle, 0, 1, 3, 0, 0, 1, 20, 90, 230, 190, 0,
-     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "The glass needle points somewhere your hand does not want to go."},
-     "A precise anomaly pick. Every reading leaves a headache.",
-     "Fine anomaly work at a cost. It finds the quiet impossibilities and leaves a little static behind your eyes."},
-    {"Prybar Kit", "tool", Slot::Tool, ItemImageKind::PrybarKit, 1, 0, 0, 0, 0, 0, 7, 220, 180, 70, 0,
-     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "You roll the kit tight. The prybar knocks once against your boot."},
-     "A prybar, pliers, tape and stubbornness in a cracked roll.",
-     "Turns locked places into negotiations. Also turns quiet places into loud ones."},
-    {"Solder Rig", "tool", Slot::Tool, ItemImageKind::SolderRig, 0, 3, 0, 0, 0, 0, 19, 230, 120, 70, 0,
-     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "The solder rig warms against your palm and starts looking for ports."},
-     "Battery iron, fiber patcher and black market firmware clips.",
-     "For powered doors, dead drones, wet panels, and anything pretending to be offline."},
-    {"Quiet Nailgun", "weapon", Slot::Weapon, ItemImageKind::QuietNailgun, 1, 0, 0, 2, 0, 0, 12, 210, 80, 160, 0,
-     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "The nailgun settles under your coat, blunt and professionally quiet."},
-     "Industrial nailer tuned for close work and low attention.",
-     "A problem solver with a small sound. Good for threats, locks, and bad ideas."},
-    {"Rail Pistol", "weapon", Slot::Weapon, ItemImageKind::RailPistol, 3, 0, 0, -1, 0, 1, 24, 230, 70, 90, 0,
-     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "The rail pistol arms bright enough to make nearby shadows take a step back."},
-     "Hard recoil, bright flash, very persuasive.",
-     "A loud answer. It wins arguments and starts investigations."},
-    {"Warm Battery", "artifact", Slot::Artifact, ItemImageKind::WarmBattery, 0, 2, 0, 0, 0, 2, 30, 240, 190, 80, 0,
-     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "The battery warms when you lie to yourself about why you kept it."},
-     "A dry cell that charges itself and warms when lied to.",
-     "Not equipment exactly. More like a small rule from somewhere else, pretending to be power storage."},
-    {"Mourning Lens", "artifact", Slot::Artifact, ItemImageKind::MourningLens, 0, 0, 3, 0, 0, 2, 34, 120, 150, 250, 0,
-     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "The lens darkens the world and reveals the edges of old mistakes."},
-     "Smoke-dark glass that shows paths people failed to take.",
-     "It sharpens observation by showing absence. The strain is remembering what was never yours."},
-    {"Null Charm", "artifact", Slot::Artifact, ItemImageKind::NullCharm, 0, 0, 0, 2, 1, 1, 28, 120, 230, 170, 0,
-     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "The charm goes cold. For a moment, even your reflection loses interest."},
-     "A cold trinket that makes cameras lose interest.",
-     "Carried invisibility with a price tag written in missing minutes."},
-    {"Iodine Ampoule", "dose", Slot::Consumable, ItemImageKind::IodineAmpoule, 0, 0, 0, 0, 0, 0, 5, 170, 230, 80, 0,
-     {ItemUseKind::Consume, 0, -5, 0, true, "Use Dose", "The iodine burns all the way down. Exposure drops, hands stop shaking."},
-     "Bitter anti-rad dose. You only taste pennies for an hour.",
-     "Temporary mercy against accumulated dose. Useful before the shaking makes decisions for you."},
-    {"Canned Coffee", "dose", Slot::Consumable, ItemImageKind::CannedCoffee, 0, 0, 0, 0, 0, 0, 4, 180, 120, 80, 0,
-     {ItemUseKind::Consume, 2, 0, 0, true, "Drink", "Coffee syrup, cold and foul. You feel almost alive."},
-     "Pre-collapse stimulant syrup. Technically food.",
-     "A small bodily loan from a company that is probably still billing somebody."},
-    {"Copper Saint", "artifact", Slot::Artifact, ItemImageKind::CopperSaint, 2, 0, 0, 0, 0, 2, 38, 210, 130, 60, 0,
-     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "The little copper figure hums like a service tunnel full of prayers."},
-     "A little idol that hums in broken service tunnels.",
-     "A heavy charm of courage or foolishness. In the exclusion, those are often the same material."},
-};
-
-Site sites[] = {
-    {"Underpass Clinic", "safe berth", "A medic shack below the ring road. Warm bulbs, bad coffee, guarded doors.", 1, 0, 0},
-    {"Neon Spillway", "wet market", "Old ad towers bleed color through toxic rain and illegal stalls.", 3, 4, 0},
-    {"Sunken Mall", "retail tomb", "Escalators vanish into black water. Something below keeps the music playing.", 4, 5, 0},
-    {"Relay Grave", "antenna field", "Fallen towers tick in the wind. Messages still arrive for the dead.", 5, 4, 0},
-    {"Black Reed Verge", "outer exclusion", "A reed sea grown through asphalt. Every shadow looks freshly made.", 6, 3, 0},
-};
-
-MapPin mapPins[] = {
-    {0, 150, 700, "CLINIC", "Blue ward light. The map stabilizes here and nowhere else."},
-    {1, 320, 510, "SPILL", "Ad ghosts stutter: BUY CLEAN WATER / BUY CLEAN SKIN."},
-    {2, 510, 670, "MALL", "Retail hymns leak from drowned escalators after dusk."},
-    {3, 660, 360, "RELAY", "Antenna shadows point against the wind."},
-    {4, 850, 190, "VERGE", "The reedline redraws itself between blinks."},
-};
-
-RouteEdge routeEdges[] = {
-    {0, 1, "drain road"},
-    {0, 2, "service tunnel"},
-    {1, 2, "flood arcade"},
-    {1, 3, "signage spine"},
-    {2, 3, "maintenance tram"},
-    {2, 4, "reed culvert"},
-    {3, 4, "antenna ridge"},
-};
-
-constexpr uint8_t kItemCount = sizeof(itemCatalog) / sizeof(itemCatalog[0]);
-constexpr uint8_t kSiteCount = sizeof(sites) / sizeof(sites[0]);
-constexpr uint8_t kMapPinCount = sizeof(mapPins) / sizeof(mapPins[0]);
-constexpr uint8_t kRouteEdgeCount = sizeof(routeEdges) / sizeof(routeEdges[0]);
-static_assert(kSiteCount <= kSiteCapacity, "site state arrays need more capacity");
-static_assert(kMapPinCount == kSiteCount, "map pins must match sites");
-
+// Clamps values used by meters, stats, and pressure calculations.
 int clampInt(int value, int low, int high) {
     if (value < low) {
         return low;
@@ -289,6 +63,7 @@ int clampInt(int value, int low, int high) {
     return value;
 }
 
+// Returns the player-facing label for an equipment slot.
 const char* slotName(Slot slot) {
     switch (slot) {
         case Slot::Suit:
@@ -307,6 +82,7 @@ const char* slotName(Slot slot) {
     return "Item";
 }
 
+// Maps an item slot to the equipped-array index; consumables cannot equip.
 int8_t equipIndexForSlot(Slot slot) {
     switch (slot) {
         case Slot::Suit:
@@ -325,14 +101,17 @@ int8_t equipIndexForSlot(Slot slot) {
     return -1;
 }
 
+// Validates a catalog index before reading item data.
 bool validItemId(int16_t itemId) {
     return itemId >= 0 && itemId < static_cast<int16_t>(kItemCount);
 }
 
+// Validates an inventory index and confirms it points at a known item.
 bool validInventorySlot(int16_t slot) {
     return slot >= 0 && slot < static_cast<int16_t>(kInventoryCapacity) && validItemId(inventory[slot]);
 }
 
+// Rebuilds the active stat profile from equipped items each time it is needed.
 Stats deriveStats() {
     Stats stats;
     for (uint8_t i = 0; i < kEquipSlotCount; ++i) {
@@ -357,14 +136,17 @@ Stats deriveStats() {
     return stats;
 }
 
+// Converts the time tick into the in-world hour displayed in the header.
 uint8_t currentHour() {
     return static_cast<uint8_t>(kDayStartHour + timeTick * kTickHours);
 }
 
+// Reports how many action ticks remain before the day ends.
 uint8_t timeRemainingTicks() {
     return timeTick < kMaxTimeTicks ? static_cast<uint8_t>(kMaxTimeTicks - timeTick) : 0;
 }
 
+// Combines base site risk, heat, intel, and dusk pressure into live danger.
 int16_t effectiveRiskForSite(uint8_t siteIndex) {
     if (siteIndex == 0 || siteIndex >= kSiteCount) {
         return sites[0].risk;
@@ -374,6 +156,7 @@ int16_t effectiveRiskForSite(uint8_t siteIndex) {
     return clampInt(sites[siteIndex].risk + siteHeat[siteIndex] / 2 - siteIntel[siteIndex] + duskPressure, 1, 9);
 }
 
+// Gives each field action its time cost in ticks.
 uint8_t actionTimeCost(UiAction action) {
     switch (action) {
         case UiAction::Observe:
@@ -388,6 +171,7 @@ uint8_t actionTimeCost(UiAction action) {
     }
 }
 
+// Names a discovered lead for status panels and action buttons.
 const char* leadName(LeadKind lead) {
     switch (lead) {
         case LeadKind::Contact:
@@ -406,6 +190,7 @@ const char* leadName(LeadKind lead) {
     return "none";
 }
 
+// Chooses the verb shown when the player acts on a lead.
 const char* leadVerb(LeadKind lead) {
     switch (lead) {
         case LeadKind::Contact:
@@ -424,6 +209,7 @@ const char* leadVerb(LeadKind lead) {
     return "Follow";
 }
 
+// Describes which stats are tested when a lead is followed.
 const char* leadCheckText(LeadKind lead) {
     switch (lead) {
         case LeadKind::Contact:
@@ -442,6 +228,7 @@ const char* leadCheckText(LeadKind lead) {
     return "--";
 }
 
+// Adds atmospheric interpretation to a discovered lead.
 const char* leadWhisper(LeadKind lead) {
     switch (lead) {
         case LeadKind::Contact:
@@ -460,6 +247,7 @@ const char* leadWhisper(LeadKind lead) {
     return "No lead.";
 }
 
+// Calculates the stat total used to resolve a lead action.
 int16_t leadSkill(LeadKind lead, const Stats& stats) {
     switch (lead) {
         case LeadKind::Contact:
@@ -478,6 +266,7 @@ int16_t leadSkill(LeadKind lead, const Stats& stats) {
     return 0;
 }
 
+// Picks a site-appropriate lead when observation succeeds.
 LeadKind randomLeadForSite(uint8_t siteIndex) {
     if (siteIndex == 1) {
         const LeadKind leads[] = {LeadKind::Contact, LeadKind::Cache, LeadKind::Door, LeadKind::Anomaly};
@@ -499,6 +288,7 @@ LeadKind randomLeadForSite(uint8_t siteIndex) {
     return LeadKind::None;
 }
 
+// Describes the stat check for the field action forecast panel.
 const char* actionCheckText(UiAction action) {
     switch (action) {
         case UiAction::Observe:
@@ -512,6 +302,7 @@ const char* actionCheckText(UiAction action) {
     }
 }
 
+// Returns the compact action label used in the forecast list.
 const char* actionLabel(UiAction action) {
     switch (action) {
         case UiAction::Observe:
@@ -525,6 +316,7 @@ const char* actionLabel(UiAction action) {
     }
 }
 
+// Summarizes what a successful action is likely to create.
 const char* actionPayoffText(UiAction action) {
     switch (action) {
         case UiAction::Observe:
@@ -538,6 +330,7 @@ const char* actionPayoffText(UiAction action) {
     }
 }
 
+// Explains why an unavailable field action is currently blocked.
 const char* actionBlockedText(UiAction action) {
     if (currentSite == 0) {
         return "travel";
@@ -560,6 +353,7 @@ const char* actionBlockedText(UiAction action) {
     return "";
 }
 
+// Selects the stat total used for a field action roll.
 int16_t actionSkill(UiAction action, const Stats& stats) {
     switch (action) {
         case UiAction::Observe:
@@ -573,6 +367,7 @@ int16_t actionSkill(UiAction action, const Stats& stats) {
     }
 }
 
+// Builds the difficulty target from site risk, heat, and action type.
 int16_t actionTarget(UiAction action) {
     int16_t target = 4 + effectiveRiskForSite(currentSite);
     if (action == UiAction::Explore) {
@@ -593,6 +388,7 @@ int16_t actionTarget(UiAction action) {
     return clampInt(target, 3, 12);
 }
 
+// Calculates dose gained by taking a field action.
 int16_t actionExposureCost(UiAction action, const Stats& stats) {
     int16_t dose = clampInt((effectiveRiskForSite(currentSite) + stats.strain - stats.filter) / 3, 0, 4);
     if (action == UiAction::Observe) {
@@ -610,6 +406,7 @@ int16_t actionExposureCost(UiAction action, const Stats& stats) {
     return dose;
 }
 
+// Converts a stat-vs-target gap into the percentage shown to the player.
 uint8_t successChance(int16_t skill, int16_t target) {
     const int16_t needed = target - skill;
     if (needed <= 1) {
@@ -621,6 +418,7 @@ uint8_t successChance(int16_t skill, int16_t target) {
     return static_cast<uint8_t>((7 - needed) * 100 / 6);
 }
 
+// Checks whether a field action is currently meaningful and affordable.
 bool fieldActionAvailable(UiAction action) {
     if (currentSite == 0) {
         return false;
@@ -640,6 +438,7 @@ bool fieldActionAvailable(UiAction action) {
     return true;
 }
 
+// Returns whether two sites share a direct authored route on the map.
 bool directRoute(uint8_t a, uint8_t b) {
     if (a == b) {
         return true;
@@ -653,6 +452,7 @@ bool directRoute(uint8_t a, uint8_t b) {
     return false;
 }
 
+// Converts route availability into travel time.
 uint8_t travelTicksToSite(uint8_t targetSite) {
     if (targetSite >= kSiteCount || targetSite == currentSite) {
         return 0;
@@ -660,6 +460,7 @@ uint8_t travelTicksToSite(uint8_t targetSite) {
     return directRoute(currentSite, targetSite) ? 1 : 2;
 }
 
+// Estimates route dose based on target danger and the player's current kit.
 int16_t routeExposureCost(uint8_t targetSite, const Stats& stats) {
     if (targetSite >= kSiteCount || targetSite == currentSite) {
         return 0;
@@ -672,11 +473,13 @@ int16_t routeExposureCost(uint8_t targetSite, const Stats& stats) {
     return clampInt((sites[targetSite].risk + routeLoad + stats.strain - stats.filter) / 4, 0, 4);
 }
 
+// Checks whether the player can reach a destination before the day closes.
 bool canTravelToSite(uint8_t targetSite) {
     const uint8_t ticks = travelTicksToSite(targetSite);
     return targetSite < kSiteCount && targetSite != currentSite && ticks > 0 && timeRemainingTicks() >= ticks;
 }
 
+// Sets the narrative status line, logs it, and marks the UI for redraw.
 void setStatus(const char* text) {
     strncpy(statusLine, text, sizeof(statusLine) - 1);
     statusLine[sizeof(statusLine) - 1] = '\0';
@@ -684,6 +487,7 @@ void setStatus(const char* text) {
     screenDirty = true;
 }
 
+// Checks for unique gear duplicates before adding rewards.
 bool hasCatalogItem(uint8_t itemId) {
     for (uint8_t i = 0; i < kInventoryCapacity; ++i) {
         if (inventory[i] == itemId) {
@@ -693,6 +497,34 @@ bool hasCatalogItem(uint8_t itemId) {
     return false;
 }
 
+// Counts valid inventory entries; paging uses this so the pack can grow without
+// drawing rows beyond the visible screen.
+uint8_t inventoryItemCount() {
+    uint8_t count = 0;
+    for (uint8_t i = 0; i < kInventoryCapacity; ++i) {
+        if (validInventorySlot(i)) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+// Calculates the last inventory page for the current row count.
+uint8_t maxInventoryPage(uint8_t rowsPerPage) {
+    const uint8_t rows = rowsPerPage == 0 ? 1 : rowsPerPage;
+    const uint8_t count = inventoryItemCount();
+    return count == 0 ? 0 : static_cast<uint8_t>((count - 1) / rows);
+}
+
+// Keeps the saved inventory page valid after item use or screen-size changes.
+void normalizeInventoryPage(uint8_t rowsPerPage) {
+    const uint8_t maxPage = maxInventoryPage(rowsPerPage);
+    if (inventoryPage > maxPage) {
+        inventoryPage = maxPage;
+    }
+}
+
+// Finds the next unused backing slot in the current pack storage.
 int16_t firstEmptyInventorySlot() {
     for (uint8_t i = 0; i < kInventoryCapacity; ++i) {
         if (inventory[i] < 0) {
@@ -702,12 +534,12 @@ int16_t firstEmptyInventorySlot() {
     return -1;
 }
 
+// Adds an item to the pack. The design has no intentional pack-size limit; the
+// fixed backing store is only there because this target avoids dynamic memory.
 bool addItem(uint8_t itemId, char* message, size_t messageSize) {
     const int16_t slot = firstEmptyInventorySlot();
     if (slot < 0) {
-        scrap += itemCatalog[itemId].value / 2;
-        snprintf(message, messageSize, "Pack full. You fenced %s on the spot for %u scrap.", itemCatalog[itemId].name,
-                 static_cast<unsigned>(itemCatalog[itemId].value / 2));
+        snprintf(message, messageSize, "Found %s, but the pack index is full in this build.", itemCatalog[itemId].name);
         return false;
     }
     inventory[slot] = itemId;
@@ -715,6 +547,7 @@ bool addItem(uint8_t itemId, char* message, size_t messageSize) {
     return true;
 }
 
+// Applies an inventory item: consumables resolve immediately, gear equips.
 void equipInventorySlot(uint8_t invSlot) {
     if (!validInventorySlot(invSlot)) {
         return;
@@ -743,6 +576,7 @@ void equipInventorySlot(uint8_t invSlot) {
     setStatus("You turn the item over in your hands. It has no direct use yet.");
 }
 
+// Registers an on-screen button for both drawing and touch handling.
 void addButton(const char* label, int32_t x, int32_t y, int32_t w, int32_t h, UiAction action, int16_t param,
                uint16_t accent, bool enabled = true, bool visible = true) {
     if (buttonCount >= kMaxButtons) {
@@ -762,14 +596,17 @@ void addButton(const char* label, int32_t x, int32_t y, int32_t w, int32_t h, Ui
     button.label[sizeof(button.label) - 1] = '\0';
 }
 
+// Clears the transient button list before redrawing a screen.
 void clearButtons() {
     buttonCount = 0;
 }
 
+// Performs a rectangular hit test for a touch point.
 bool hitButton(const Button& button, int32_t x, int32_t y) {
     return button.enabled && x >= button.x && x < button.x + button.w && y >= button.y && y < button.y + button.h;
 }
 
+// Draws a registered button, including disabled styling.
 void drawButton(const Button& button) {
     if (!button.visible) {
         return;
@@ -788,6 +625,7 @@ void drawButton(const Button& button) {
     display.setTextDatum(textdatum_t::top_left);
 }
 
+// Draws short prose blocks without letting long text spill out of panels.
 void drawWrappedText(const char* text, int32_t x, int32_t y, int32_t w, uint8_t maxLines, uint16_t color,
                      uint16_t background) {
     auto& display = M5.Display;
@@ -841,6 +679,7 @@ void drawWrappedText(const char* text, int32_t x, int32_t y, int32_t w, uint8_t 
     }
 }
 
+// Draws a labeled meter for body, exposure, and clock pressure.
 void drawMeter(int32_t x, int32_t y, int32_t w, int32_t h, int value, int maxValue, uint16_t color, const char* label) {
     auto& display = M5.Display;
     const uint16_t bg = rgb(6, 10, 14);
@@ -855,12 +694,14 @@ void drawMeter(int32_t x, int32_t y, int32_t w, int32_t h, int value, int maxVal
     display.fillRect(x + 2, y + 2, filled, h - 4, color);
 }
 
+// Draws the shared dark panel style used throughout the interface.
 void drawPanel(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t border) {
     auto& display = M5.Display;
     display.fillRoundRect(x, y, w, h, 8, rgb(8, 12, 17));
     display.drawRoundRect(x, y, w, h, 8, border);
 }
 
+// Draws the persistent top bar with time, scrap, risk, cache, and heat.
 void drawHeader() {
     auto& display = M5.Display;
     const int32_t width = display.width();
@@ -884,6 +725,7 @@ void drawHeader() {
                    siteCache[currentSite], siteHeat[currentSite]);
 }
 
+// Draws the runner condition meters and contextualized stats.
 void drawStatsPanel(int32_t x, int32_t y, int32_t w, int32_t h) {
     auto& display = M5.Display;
     const uint16_t bg = rgb(8, 12, 17);
@@ -915,6 +757,7 @@ void drawStatsPanel(int32_t x, int32_t y, int32_t w, int32_t h) {
     display.printf("STRAIN weird %d", stats.strain);
 }
 
+// Draws the currently equipped gear by slot.
 void drawEquippedList(int32_t x, int32_t y, int32_t w, int32_t h) {
     auto& display = M5.Display;
     const uint16_t bg = rgb(8, 12, 17);
@@ -937,6 +780,7 @@ void drawEquippedList(int32_t x, int32_t y, int32_t w, int32_t h) {
     }
 }
 
+// Draws a compact pack preview on the field screen.
 void drawPackPreview(int32_t x, int32_t y, int32_t w, int32_t h) {
     auto& display = M5.Display;
     const uint16_t bg = rgb(8, 12, 17);
@@ -963,6 +807,7 @@ void drawPackPreview(int32_t x, int32_t y, int32_t w, int32_t h) {
     }
 }
 
+// Draws action outcomes before the player commits time and risk.
 void drawActionForecast(int32_t x, int32_t y, int32_t w, int32_t h) {
     auto& display = M5.Display;
     const uint16_t bg = rgb(8, 12, 17);
@@ -1007,6 +852,7 @@ void drawActionForecast(int32_t x, int32_t y, int32_t w, int32_t h) {
     }
 }
 
+// Chooses loot from action-specific pools with risk-weighted rare finds.
 uint8_t randomLootForAction(UiAction action) {
     const uint8_t risk = static_cast<uint8_t>(effectiveRiskForSite(currentSite));
     const bool rare = random(0, 100) < (18 + risk * 5);
@@ -1035,6 +881,7 @@ uint8_t randomLootForAction(UiAction action) {
     return exploreLoot[random(0, sizeof(exploreLoot) / sizeof(exploreLoot[0]))];
 }
 
+// Calculates how much attention a field action adds to the current site.
 uint8_t actionHeatGain(UiAction action, bool success) {
     switch (action) {
         case UiAction::Observe:
@@ -1056,6 +903,7 @@ uint8_t actionHeatGain(UiAction action, bool success) {
     }
 }
 
+// Lowers heat, fades intel, clears leads, and slowly restocks sites overnight.
 void coolSitesForNewDay() {
     for (uint8_t i = 1; i < kSiteCount; ++i) {
         siteHeat[i] = siteHeat[i] > 2 ? static_cast<uint8_t>(siteHeat[i] - 2) : 0;
@@ -1067,6 +915,7 @@ void coolSitesForNewDay() {
     }
 }
 
+// Advances dawn, applies clinic upkeep, and returns the runner to the berth.
 void startNewDay(const char* lead) {
     ++day;
     timeTick = 0;
@@ -1090,6 +939,7 @@ void startNewDay(const char* lead) {
     setStatus(message);
 }
 
+// Spends action time and resolves forced overnight consequences at curfew.
 void spendTime(uint8_t ticks) {
     timeTick = static_cast<uint8_t>(timeTick + ticks);
     if (timeTick < kMaxTimeTicks) {
@@ -1112,6 +962,7 @@ void spendTime(uint8_t ticks) {
     startNewDay(lead);
 }
 
+// Handles the clinic recovery loop after the runner hits a fail state.
 void checkCollapse() {
     if (health > 0 && exposure < kMaxExposure) {
         return;
@@ -1127,6 +978,7 @@ void checkCollapse() {
     setStatus("You wake under clinic lights with your boots still wet. Collapse care cost 6 scrap and a little pride.");
 }
 
+// Resolves observe, explore, and lead actions through one risk/reward pipeline.
 void resolveFieldAction(UiAction action) {
     if (!fieldActionAvailable(action)) {
         setStatus("That move is not open right now. Either the site is dry, the light is wrong, or you need a lead.");
@@ -1265,6 +1117,7 @@ void resolveFieldAction(UiAction action) {
     checkCollapse();
 }
 
+// Moves the runner between sites, spending daylight and applying route dose.
 void travelToSite(uint8_t targetSite) {
     const Stats stats = deriveStats();
     if (targetSite >= kSiteCount) {
@@ -1301,6 +1154,7 @@ void travelToSite(uint8_t targetSite) {
     checkCollapse();
 }
 
+// Resting at the clinic heals; resting elsewhere retreats to the safe berth.
 void restOrRetreat() {
     if (currentSite != 0) {
         currentSite = 0;
@@ -1319,6 +1173,7 @@ void restOrRetreat() {
     checkCollapse();
 }
 
+// Dispatches button presses into game actions and screen changes.
 void handleAction(UiAction action, int16_t param) {
     switch (action) {
         case UiAction::Observe:
@@ -1358,6 +1213,16 @@ void handleAction(UiAction action, int16_t param) {
                 currentScreen = Screen::Inventory;
             }
             break;
+        case UiAction::InventoryPrev:
+            if (inventoryPage > 0) {
+                --inventoryPage;
+                screenDirty = true;
+            }
+            break;
+        case UiAction::InventoryNext:
+            ++inventoryPage;
+            screenDirty = true;
+            break;
         case UiAction::Travel:
             travelToSite(static_cast<uint8_t>(param));
             break;
@@ -1369,6 +1234,7 @@ void handleAction(UiAction action, int16_t param) {
     }
 }
 
+// Draws the main play screen: place text, stats, forecast, and actions.
 void drawFieldScreen() {
     auto& display = M5.Display;
     clearButtons();
@@ -1434,14 +1300,17 @@ void drawFieldScreen() {
     }
 }
 
+// Converts a map pin's horizontal permille coordinate into pixels.
 int32_t mapPinX(const MapPin& pin, int32_t x, int32_t w) {
     return x + 26 + static_cast<int32_t>(pin.xPermille) * (w - 52) / 1000;
 }
 
+// Converts a map pin's vertical permille coordinate into pixels.
 int32_t mapPinY(const MapPin& pin, int32_t y, int32_t h) {
     return y + 26 + static_cast<int32_t>(pin.yPermille) * (h - 52) / 1000;
 }
 
+// Deterministic pseudo-noise used for satellite terrain texture.
 uint32_t mapNoise(uint32_t seed) {
     seed ^= seed >> 16;
     seed *= 2246822519UL;
@@ -1451,6 +1320,7 @@ uint32_t mapNoise(uint32_t seed) {
     return seed;
 }
 
+// Chooses the terrain stain color around each site on the satellite map.
 uint16_t satelliteSiteStain(uint8_t siteIndex) {
     switch (siteIndex) {
         case 1:
@@ -1466,6 +1336,7 @@ uint16_t satelliteSiteStain(uint8_t siteIndex) {
     }
 }
 
+// Draws a simple thick line by offsetting the same segment in four directions.
 void drawThickLine(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t color, uint8_t radius) {
     auto& display = M5.Display;
     display.drawLine(x0, y0, x1, y1, color);
@@ -1477,6 +1348,7 @@ void drawThickLine(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t colo
     }
 }
 
+// Draws a quadratic curve used for natural rivers, roads, and walked paths.
 void drawCurvedTerrainStroke(int32_t ax, int32_t ay, int32_t bx, int32_t by, int32_t bendX, int32_t bendY,
                              uint16_t color, uint8_t radius, uint8_t steps) {
     const int32_t cx = (ax + bx) / 2 + bendX;
@@ -1496,6 +1368,7 @@ void drawCurvedTerrainStroke(int32_t ax, int32_t ay, int32_t bx, int32_t by, int
     }
 }
 
+// Draws route edges as uneven foot-made paths instead of straight UI lines.
 void drawWalkedRoute(uint8_t edgeIndex, int32_t ax, int32_t ay, int32_t bx, int32_t by, uint16_t signalColor,
                      bool highlighted) {
     const int32_t dx = bx - ax;
@@ -1526,6 +1399,7 @@ void drawWalkedRoute(uint8_t edgeIndex, int32_t ax, int32_t ay, int32_t bx, int3
     }
 }
 
+// Paints the satellite-style terrain layer with noise, stains, roads, and water.
 void drawMapBackground(int32_t x, int32_t y, int32_t w, int32_t h) {
     auto& display = M5.Display;
     const uint16_t bg = rgb(6, 9, 8);
@@ -1591,6 +1465,7 @@ void drawMapBackground(int32_t x, int32_t y, int32_t w, int32_t h) {
     display.clearClipRect();
 }
 
+// Draws every authored route and highlights paths connected to current focus.
 void drawMapRoutes(int32_t x, int32_t y, int32_t w, int32_t h) {
     for (uint8_t i = 0; i < kRouteEdgeCount; ++i) {
         const MapPin& a = mapPins[routeEdges[i].from];
@@ -1607,6 +1482,7 @@ void drawMapRoutes(int32_t x, int32_t y, int32_t w, int32_t h) {
     }
 }
 
+// Draws the shared marker base under each destination icon.
 void drawIconBase(int32_t x, int32_t y, uint16_t accent, bool selected) {
     auto& display = M5.Display;
     display.fillCircle(x + 3, y + 5, 23, rgb(3, 5, 5));
@@ -1616,6 +1492,7 @@ void drawIconBase(int32_t x, int32_t y, uint16_t accent, bool selected) {
     display.drawCircle(x, y, 19, accent);
 }
 
+// Draws the Underpass Clinic marker.
 void drawClinicIcon(int32_t x, int32_t y) {
     auto& display = M5.Display;
     display.fillRoundRect(x - 14, y - 9, 28, 20, 3, rgb(92, 96, 90));
@@ -1627,6 +1504,7 @@ void drawClinicIcon(int32_t x, int32_t y) {
     display.fillCircle(x + 13, y - 9, 3, rgb(170, 220, 210));
 }
 
+// Draws the Neon Spillway marker.
 void drawSpillwayIcon(int32_t x, int32_t y) {
     auto& display = M5.Display;
     display.fillRoundRect(x - 17, y - 13, 34, 13, 3, rgb(82, 76, 70));
@@ -1639,6 +1517,7 @@ void drawSpillwayIcon(int32_t x, int32_t y) {
     display.drawFastHLine(x - 16, y - 18, 24, rgb(92, 30, 80));
 }
 
+// Draws the Sunken Mall marker.
 void drawMallIcon(int32_t x, int32_t y) {
     auto& display = M5.Display;
     display.fillRoundRect(x - 17, y - 12, 34, 25, 2, rgb(82, 78, 68));
@@ -1652,6 +1531,7 @@ void drawMallIcon(int32_t x, int32_t y) {
     display.drawLine(x - 13, y - 16, x - 18, y - 12, rgb(72, 70, 62));
 }
 
+// Draws the Relay Grave marker.
 void drawRelayIcon(int32_t x, int32_t y) {
     auto& display = M5.Display;
     display.drawLine(x, y - 19, x - 12, y + 15, rgb(156, 148, 118));
@@ -1665,6 +1545,7 @@ void drawRelayIcon(int32_t x, int32_t y) {
     display.drawFastHLine(x + 10, y + 20, 18, rgb(74, 70, 56));
 }
 
+// Draws the Black Reed Verge marker.
 void drawVergeIcon(int32_t x, int32_t y) {
     auto& display = M5.Display;
     display.fillCircle(x, y + 3, 19, rgb(20, 42, 23));
@@ -1680,6 +1561,7 @@ void drawVergeIcon(int32_t x, int32_t y) {
     display.fillCircle(x + 7, y - 4, 5, rgb(12, 18, 14));
 }
 
+// Selects and draws the correct site-specific destination icon.
 void drawDestinationIcon(uint8_t siteIndex, int32_t x, int32_t y, bool selected) {
     drawIconBase(x, y, sites[siteIndex].color, selected);
     switch (siteIndex) {
@@ -1701,6 +1583,7 @@ void drawDestinationIcon(uint8_t siteIndex, int32_t x, int32_t y, bool selected)
     }
 }
 
+// Draws all map pins, overlays heat/intel rings, and registers hit areas.
 void drawMapPins(int32_t x, int32_t y, int32_t w, int32_t h) {
     auto& display = M5.Display;
     const uint16_t bg = rgb(4, 8, 11);
@@ -1733,6 +1616,7 @@ void drawMapPins(int32_t x, int32_t y, int32_t w, int32_t h) {
     }
 }
 
+// Draws the selected destination's narrative and travel information.
 void drawMapDetailPanel(int32_t x, int32_t y, int32_t w, int32_t h) {
     auto& display = M5.Display;
     const uint16_t bg = rgb(8, 12, 17);
@@ -1775,6 +1659,7 @@ void drawMapDetailPanel(int32_t x, int32_t y, int32_t w, int32_t h) {
     display.print(travelReady ? "The route is open." : (here ? "Current location." : "Curfew blocks this route."));
 }
 
+// Draws the map screen as a degraded satellite pass plus in-world annotations.
 void drawMapScreen() {
     auto& display = M5.Display;
     clearButtons();
@@ -1812,6 +1697,7 @@ void drawMapScreen() {
     }
 }
 
+// Draws an item's stat deltas in a compact six-stat row.
 void drawStatDelta(const Item& item, int32_t x, int32_t y, uint16_t bg) {
     auto& display = M5.Display;
     display.setFont(&fonts::Font2);
@@ -1821,6 +1707,7 @@ void drawStatDelta(const Item& item, int32_t x, int32_t y, uint16_t bg) {
                    item.strain);
 }
 
+// Draws the common field-photo frame behind every item illustration.
 void drawItemImageFrame(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t accent) {
     auto& display = M5.Display;
     display.fillRoundRect(x, y, w, h, 8, rgb(4, 7, 8));
@@ -1835,6 +1722,7 @@ void drawItemImageFrame(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t acc
     }
 }
 
+// Draws item-specific generated art using the item's image kind.
 void drawItemImage(const Item& item, int32_t x, int32_t y, int32_t w, int32_t h) {
     auto& display = M5.Display;
     const int32_t cx = x + w / 2;
@@ -1972,6 +1860,7 @@ void drawItemImage(const Item& item, int32_t x, int32_t y, int32_t w, int32_t h)
     }
 }
 
+// Checks whether an inventory slot is currently equipped in any gear slot.
 bool isEquippedInventorySlot(uint8_t invSlot) {
     for (uint8_t i = 0; i < kEquipSlotCount; ++i) {
         if (equipped[i] == invSlot) {
@@ -1981,8 +1870,10 @@ bool isEquippedInventorySlot(uint8_t invSlot) {
     return false;
 }
 
+// Forward declaration lets item detail return to the inventory on bad state.
 void drawInventoryScreen();
 
+// Converts item use kind into compact detail-panel text.
 const char* itemUseKindText(ItemUseKind kind) {
     switch (kind) {
         case ItemUseKind::Equip:
@@ -1995,6 +1886,7 @@ const char* itemUseKindText(ItemUseKind kind) {
     return "passive";
 }
 
+// Chooses the primary action button label for an item detail card.
 const char* itemActionLabel(const Item& item, bool equippedNow) {
     if (equippedNow) {
         return "Equipped";
@@ -2011,6 +1903,7 @@ const char* itemActionLabel(const Item& item, bool equippedNow) {
     return "No Use";
 }
 
+// Draws the inspectable item card with art, flavor text, stats, and action.
 void drawItemDetailScreen() {
     auto& display = M5.Display;
     clearButtons();
@@ -2082,6 +1975,7 @@ void drawItemDetailScreen() {
     }
 }
 
+// Draws the pack and equipped list, paging through carried items as needed.
 void drawInventoryScreen() {
     auto& display = M5.Display;
     clearButtons();
@@ -2108,12 +2002,30 @@ void drawInventoryScreen() {
 
     display.setFont(&fonts::Font2);
     display.setTextColor(rgb(150, 168, 170), bg);
-    display.drawString("Tap an item to inspect it.", listX + 18, top + 52);
+    const int32_t listInnerH = height - top - bottomH - margin - 92;
+    uint8_t rowsPerPage = static_cast<uint8_t>(listInnerH > rowH ? listInnerH / rowH : 1);
+    if (rowsPerPage > kInventoryCapacity) {
+        rowsPerPage = kInventoryCapacity;
+    }
+    normalizeInventoryPage(rowsPerPage);
+    const uint8_t inventoryCount = inventoryItemCount();
+    const uint8_t maxPage = maxInventoryPage(rowsPerPage);
+    display.setCursor(listX + 18, top + 52);
+    display.printf("Tap an item to inspect it.  %u carried  page %u/%u", static_cast<unsigned>(inventoryCount),
+                   static_cast<unsigned>(inventoryPage + 1), static_cast<unsigned>(maxPage + 1));
 
+    const uint8_t startRow = static_cast<uint8_t>(inventoryPage * rowsPerPage);
+    uint8_t seen = 0;
     uint8_t drawn = 0;
     for (uint8_t i = 0; i < kInventoryCapacity; ++i) {
         if (!validInventorySlot(i)) {
             continue;
+        }
+        if (seen++ < startRow) {
+            continue;
+        }
+        if (drawn >= rowsPerPage) {
+            break;
         }
         const Item& item = itemCatalog[inventory[i]];
         const int32_t rowY = top + 88 + drawn * rowH;
@@ -2138,11 +2050,16 @@ void drawInventoryScreen() {
 
     const int32_t buttonY = height - bottomH;
     addButton("Field", margin, buttonY + 8, 190, 52, UiAction::BackToField, 0, rgb(90, 210, 220));
+    addButton("Prev", margin + 204, buttonY + 8, 140, 52, UiAction::InventoryPrev, 0, rgb(170, 120, 240),
+              inventoryPage > 0);
+    addButton("Next", margin + 358, buttonY + 8, 140, 52, UiAction::InventoryNext, 0, rgb(170, 120, 240),
+              inventoryPage < maxPage);
     for (uint8_t i = 0; i < buttonCount; ++i) {
         drawButton(buttons[i]);
     }
 }
 
+// Routes the dirty-screen redraw to the active screen renderer.
 void drawCurrentScreen() {
     switch (currentScreen) {
         case Screen::Inventory:
@@ -2161,6 +2078,7 @@ void drawCurrentScreen() {
     screenDirty = false;
 }
 
+// Resolves item and site palette values after the display is initialized.
 void initializeColors() {
     for (uint8_t i = 0; i < kItemCount; ++i) {
         itemCatalog[i].color = rgb(itemCatalog[i].tintR, itemCatalog[i].tintG, itemCatalog[i].tintB);
@@ -2173,6 +2091,7 @@ void initializeColors() {
     sites[4].color = rgb(120, 220, 90);
 }
 
+// Seeds the starting game state, inventory, equipment, and site caches.
 void initializeGame() {
     for (uint8_t i = 0; i < kInventoryCapacity; ++i) {
         inventory[i] = -1;
@@ -2199,6 +2118,7 @@ void initializeGame() {
     equipped[3] = 3;
 }
 
+// TouchState records the current press and edge-triggered first tap.
 struct TouchState {
     bool pressed = false;
     bool justPressed = false;
@@ -2206,6 +2126,7 @@ struct TouchState {
     int32_t y = 0;
 };
 
+// Reads and converts raw M5 touch data into screen coordinates.
 TouchState readTouch() {
     TouchState touch;
     lgfx::touch_point_t point;
@@ -2221,6 +2142,7 @@ TouchState readTouch() {
     return touch;
 }
 
+// Sends the first touch on a button to the action dispatcher.
 void handleTouch(const TouchState& touch) {
     if (!touch.justPressed) {
         return;
@@ -2236,6 +2158,7 @@ void handleTouch(const TouchState& touch) {
 
 }  // namespace
 
+// Arduino setup initializes hardware, authored colors, game state, and first draw.
 void setup() {
     Serial.begin(115200);
     delay(50);
@@ -2255,6 +2178,7 @@ void setup() {
     drawCurrentScreen();
 }
 
+// Arduino loop updates touch input and redraws only when game state changes.
 void loop() {
     M5.update();
     const TouchState touch = readTouch();
