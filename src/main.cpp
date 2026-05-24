@@ -477,22 +477,18 @@ int16_t availableTradeValue() {
     return total;
 }
 
-// Rebuilds the active stat profile from equipped items each time it is needed.
-Stats deriveStats() {
-    Stats stats;
-    for (uint8_t i = 0; i < kEquipSlotCount; ++i) {
-        const int16_t invSlot = equipped[i];
-        if (!validInventorySlot(invSlot)) {
-            continue;
-        }
-        const Item& item = itemCatalog[inventory[invSlot]];
-        stats.grit += item.grit;
-        stats.tech += item.tech;
-        stats.scan += item.scan;
-        stats.ghost += item.ghost;
-        stats.filter += item.filter;
-        stats.strain += item.strain;
-    }
+// Adds one item's passive stat profile to a running stat total.
+void addItemStats(Stats& stats, const Item& item) {
+    stats.grit += item.grit;
+    stats.tech += item.tech;
+    stats.scan += item.scan;
+    stats.ghost += item.ghost;
+    stats.filter += item.filter;
+    stats.strain += item.strain;
+}
+
+// Keeps derived runner stats inside the range the UI and checks expect.
+Stats clampStats(Stats stats) {
     stats.grit = clampInt(stats.grit, 0, 9);
     stats.tech = clampInt(stats.tech, 0, 9);
     stats.scan = clampInt(stats.scan, 0, 9);
@@ -500,6 +496,34 @@ Stats deriveStats() {
     stats.filter = clampInt(stats.filter, 0, 9);
     stats.strain = clampInt(stats.strain, 0, 9);
     return stats;
+}
+
+// Rebuilds stats with an optional inventory-slot replacement for previewing equipment.
+Stats deriveStatsWithReplacement(int16_t replacementInvSlot) {
+    Stats stats;
+    int8_t replacementEquipSlot = -1;
+    if (validInventorySlot(replacementInvSlot)) {
+        const Item& replacement = itemCatalog[inventory[replacementInvSlot]];
+        if (replacement.use.kind == ItemUseKind::Equip) {
+            replacementEquipSlot = equipIndexForSlot(replacement.slot);
+        }
+    }
+
+    for (uint8_t i = 0; i < kEquipSlotCount; ++i) {
+        int16_t invSlot = equipped[i];
+        if (replacementEquipSlot == static_cast<int8_t>(i)) {
+            invSlot = replacementInvSlot;
+        }
+        if (validInventorySlot(invSlot)) {
+            addItemStats(stats, itemCatalog[inventory[invSlot]]);
+        }
+    }
+    return clampStats(stats);
+}
+
+// Rebuilds the active stat profile from equipped items each time it is needed.
+Stats deriveStats() {
+    return deriveStatsWithReplacement(-1);
 }
 
 // Converts the time tick into the in-world hour displayed in the header.
@@ -3563,6 +3587,26 @@ void drawFullItemStats(const Item& item, int32_t x, int32_t y, int32_t maxWidth,
                          item.ghost, item.filter, item.strain);
 }
 
+// Draws the current runner profile in two compact lines with full stat names.
+void drawRunnerStatsRows(const Stats& stats, int32_t x, int32_t y, int32_t maxWidth, uint16_t color, uint16_t bg) {
+    M5.Display.setFont(&fonts::Font2);
+    drawFormattedTextFit(x, y, maxWidth, color, bg, "Grit %d  Tech %d  Scan %d", stats.grit, stats.tech, stats.scan);
+    drawFormattedTextFit(x, y + 22, maxWidth, color, bg, "Ghost %d  Filter %d  Strain %d", stats.ghost,
+                         stats.filter, stats.strain);
+}
+
+// Draws the net change from replacing the currently equipped item in the same slot.
+void drawRunnerNetRows(const Stats& current, const Stats& preview, int32_t x, int32_t y, int32_t maxWidth,
+                       uint16_t bg) {
+    M5.Display.setFont(&fonts::Font2);
+    const uint16_t color = rgb(190, 220, 210);
+    drawFormattedTextFit(x, y, maxWidth, color, bg, "Grit %+d  Tech %+d  Scan %+d", preview.grit - current.grit,
+                         preview.tech - current.tech, preview.scan - current.scan);
+    drawFormattedTextFit(x, y + 22, maxWidth, color, bg, "Ghost %+d  Filter %+d  Strain %+d",
+                         preview.ghost - current.ghost, preview.filter - current.filter,
+                         preview.strain - current.strain);
+}
+
 // Draws the common field-photo frame behind every item illustration.
 void drawItemImageFrame(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t accent) {
     auto& display = M5.Display;
@@ -3806,6 +3850,9 @@ void drawItemDetailScreen() {
     const uint8_t itemId = static_cast<uint8_t>(inventory[selectedInventorySlot]);
     const Item& item = itemCatalog[itemId];
     const bool equippedNow = isEquippedInventorySlot(static_cast<uint8_t>(selectedInventorySlot));
+    const bool canPreviewEquip = item.use.kind == ItemUseKind::Equip && equipIndexForSlot(item.slot) >= 0;
+    const Stats currentStats = deriveStats();
+    const Stats previewStats = canPreviewEquip ? deriveStatsWithReplacement(selectedInventorySlot) : currentStats;
     const uint16_t bg = rgb(8, 12, 17);
 
     drawItemImage(item, margin, top, imageW, imageH);
@@ -3830,11 +3877,28 @@ void drawItemDetailScreen() {
     drawTextFit("Field Read", detailX + 20, top + 222, detailW - 40, rgb(125, 230, 205), bg);
     drawWrappedText(item.fieldRead, detailX + 20, top + 252, detailW - 40, 3, rgb(170, 188, 184), bg);
 
+    const int32_t statHelpW = (detailW - 60) / 2;
+    const int32_t previewX = detailX + 40 + statHelpW;
+    const int32_t previewW = detailW - (previewX - detailX) - 20;
     display.drawFastHLine(detailX + 18, top + 334, detailW - 36, rgb(55, 70, 70));
-    drawTextFit("How Stats Matter", detailX + 20, top + 354, detailW - 40, rgb(125, 230, 205), bg);
+    drawTextFit("Stat Meaning", detailX + 20, top + 354, statHelpW, rgb(125, 230, 205), bg);
     drawWrappedText(
-        "Grit: force, Explore, and injury. Tech: Observe, doors, devices, contacts. Scan: anomalies, trails, hidden leads. Ghost: contacts, trails, and heat. Filter: exposure, caches, anomalies. Strain: weird power that raises dose risk.",
-        detailX + 20, top + 384, detailW - 40, 3, rgb(170, 188, 184), bg);
+        "Grit handles force and injury. Tech handles doors, devices, and contacts. Scan reads anomalies and trails.",
+        detailX + 20, top + 382, statHelpW, 3, rgb(170, 188, 184), bg);
+    drawWrappedText("Ghost handles people, trails, and heat. Filter resists exposure. Strain raises weird dose risk.",
+                    detailX + 20, top + 452, statHelpW, 2, rgb(170, 188, 184), bg);
+
+    drawTextFit("Runner Preview", previewX, top + 354, previewW, rgb(125, 230, 205), bg);
+    drawTextFit("Current stats", previewX, top + 374, previewW, rgb(150, 168, 170), bg);
+    drawRunnerStatsRows(currentStats, previewX, top + 398, previewW, rgb(220, 230, 225), bg);
+    drawTextFit(equippedNow ? "Already equipped" : (canPreviewEquip ? "Net if equipped" : "Use effect below"),
+                previewX, top + 444, previewW, rgb(150, 168, 170), bg);
+    if (canPreviewEquip) {
+        drawRunnerNetRows(currentStats, previewStats, previewX, top + 466, previewW, bg);
+    } else {
+        drawTextFit("No slot change; use effect is listed below.", previewX, top + 466, previewW,
+                    rgb(190, 220, 210), bg);
+    }
 
     display.drawFastHLine(detailX + 18, top + imageH - 118, detailW - 36, rgb(55, 70, 70));
     drawTextFit("Effects", detailX + 20, top + imageH - 96, detailW - 40, rgb(210, 220, 215), bg);
