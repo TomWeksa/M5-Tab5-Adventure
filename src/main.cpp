@@ -148,6 +148,7 @@ bool tarTapeSpent[kSiteCapacity];
 bool signalChalkMark[kSiteCapacity];
 uint8_t storyStage[static_cast<uint8_t>(StoryArc::Count)];
 uint8_t storyOutcome[static_cast<uint8_t>(StoryArc::Count)];
+StoryArc pendingStoryArc = StoryArc::Count;
 char statusLine[320] = "The rain tastes metallic. Your kit is the only thing between you and the quiet.";
 char rewardTitle[80] = "";
 char rewardSummary[320] = "";
@@ -252,6 +253,10 @@ uint8_t storyIndex(StoryArc arc) {
     return static_cast<uint8_t>(arc);
 }
 
+bool hasPendingStoryDecision() {
+    return pendingStoryArc != StoryArc::Count;
+}
+
 // Tracker labels frame story arcs as in-world rumours instead of menu quests.
 const char* storyTitle(StoryArc arc) {
     switch (arc) {
@@ -261,6 +266,81 @@ const char* storyTitle(StoryArc arc) {
             return "The Last Sale at Level B2";
         case StoryArc::PersonWhoNeverEntered:
             return "The Person Who Never Entered";
+        case StoryArc::Count:
+            return "";
+    }
+    return "";
+}
+
+const char* storyDecisionPrompt(StoryArc arc) {
+    switch (arc) {
+        case StoryArc::BatteriesForTheDead:
+            return "Station Mercy is awake enough to be dangerous. Sister Clamp, Dr. Vell, the market, and the voice in your kit all want different futures for the signal.";
+        case StoryArc::LastSaleAtB2:
+            return "The Manager Below unlocks Level B2 and demands a customer decision. Hessa needs medicine, Milo needs truth, and the Mall wants to keep selling hunger back to itself.";
+        case StoryArc::PersonWhoNeverEntered:
+            return "The Other Runner waits in the reeds wearing your outline. The cameras, the clinic, and the market all need one version of you to become useful.";
+        case StoryArc::Count:
+            return "";
+    }
+    return "";
+}
+
+const char* storyChoiceLabel(StoryArc arc, uint8_t choice) {
+    switch (arc) {
+        case StoryArc::BatteriesForTheDead: {
+            const char* labels[] = {"Preserve", "Silence", "Sell", "Keep Voice"};
+            return choice < 4 ? labels[choice] : "";
+        }
+        case StoryArc::LastSaleAtB2: {
+            const char* labels[] = {"Save Family", "Pay Memory", "Feed PA", "Shut PA"};
+            return choice < 4 ? labels[choice] : "";
+        }
+        case StoryArc::PersonWhoNeverEntered: {
+            const char* labels[] = {"Erase", "Bargain", "Trade ID", "Sell Face"};
+            return choice < 4 ? labels[choice] : "";
+        }
+        case StoryArc::Count:
+            return "";
+    }
+    return "";
+}
+
+const char* storyChoiceText(StoryArc arc, uint8_t choice) {
+    switch (arc) {
+        case StoryArc::BatteriesForTheDead:
+            if (choice == 0) {
+                return "Keep Station Mercy powered. Relay observations improve, but the Choir keeps touching sleep.";
+            }
+            if (choice == 1) {
+                return "Burn out the cabinet. Relay heat and exposure pressure fall, but Sister Clamp loses the Choir.";
+            }
+            if (choice == 2) {
+                return "Sell the tuned frequency. Take goods now; Relay Grave gets hotter as smugglers harvest last words.";
+            }
+            return "Isolate one voice for your kit. Gain a radio voice that helps and haunts in equal measure.";
+        case StoryArc::LastSaleAtB2:
+            if (choice == 0) {
+                return "Recover medicine without feeding the PA. Hessa becomes a Mall contact and the family route stabilizes.";
+            }
+            if (choice == 1) {
+                return "Pay with a memory. Gain a deep Mall artifact; the speakers keep a warm voice.";
+            }
+            if (choice == 2) {
+                return "Help the Manager classify scavengers. Caches improve, but the Mall gets crueler.";
+            }
+            return "Sever the Manager Below. Heat drops and electronics pay out, but PA rewards vanish.";
+        case StoryArc::PersonWhoNeverEntered:
+            if (choice == 0) {
+                return "Erase the duplicate loop. Spillway heat falls; some people forget useful meetings.";
+            }
+            if (choice == 1) {
+                return "Let the Other Runner help. It can pay bills, but may act like a debt collector with your shadow.";
+            }
+            if (choice == 2) {
+                return "Trade identities. Debt pressure drops, but friendly contacts may know the wrong you.";
+            }
+            return "Sell the duplicate footage. Take a large payout while your face becomes market property.";
         case StoryArc::Count:
             return "";
     }
@@ -2020,18 +2100,128 @@ void checkCollapse() {
     setStatus(message);
 }
 
+void requestStoryDecision(StoryArc arc, char* message, size_t messageSize) {
+    if (storyResolved(arc)) {
+        return;
+    }
+    pendingStoryArc = arc;
+    appendAbilityNote(message, messageSize, "A story decision waits. Choose how this rumour becomes true.");
+}
+
+void completeStoryDecision(uint8_t choice) {
+    if (!hasPendingStoryDecision() || choice >= 4) {
+        currentScreen = Screen::Field;
+        screenDirty = true;
+        return;
+    }
+
+    const StoryArc arc = pendingStoryArc;
+    const uint8_t index = storyIndex(arc);
+    pendingStoryArc = StoryArc::Count;
+
+    char message[320];
+    if (arc == StoryArc::BatteriesForTheDead) {
+        storyStage[index] = 2;
+        if (choice == 0) {
+            storyOutcome[index] = 1;
+            siteIntel[3] = kMaxSiteIntel;
+            snprintf(message, sizeof(message),
+                     "You preserve the Choir. Relay Grave hums like a hospital ward full of names; some are directions, some are bait.");
+        } else if (choice == 1) {
+            storyOutcome[index] = 2;
+            siteAttention[3] = siteAttention[3] > 2 ? static_cast<uint8_t>(siteAttention[3] - 2) : 0;
+            exposure = clampInt(exposure - 1, 0, kMaxExposure);
+            snprintf(message, sizeof(message),
+                     "You silence Station Mercy. The cabinet dies with hot dust; for one honest minute, Relay Grave is wind and metal.");
+        } else if (choice == 2) {
+            storyOutcome[index] = 3;
+            grantTradeGoods(10);
+            siteAttention[3] = clampInt(siteAttention[3] + 2, 0, kMaxSiteAttention);
+            snprintf(message, sizeof(message),
+                     "You sell the frequency. By morning the market rents little radios full of mothers, murderers, and weather.");
+        } else {
+            storyOutcome[index] = 4;
+            if (!hasCatalogItem(kCopperToothRadioItem)) {
+                grantRewardItem(kCopperToothRadioItem);
+            }
+            snprintf(message, sizeof(message),
+                     "You keep one voice. It moves into your pocket, says it is not lonely, and says this too quickly.");
+        }
+    } else if (arc == StoryArc::LastSaleAtB2) {
+        storyStage[index] = 2;
+        if (choice == 0) {
+            storyOutcome[index] = 1;
+            siteIntel[2] = kMaxSiteIntel;
+            if (!hasCatalogItem(kMedPackItem)) {
+                grantRewardItem(kMedPackItem);
+            }
+            snprintf(message, sizeof(message),
+                     "You save Hessa's family cleanly. For the first time in years, the Mall announces a closing time and means mercy.");
+        } else if (choice == 1) {
+            storyOutcome[index] = 2;
+            if (!hasCatalogItem(kTenthButtonItem)) {
+                grantRewardItem(kTenthButtonItem);
+            }
+            exposure = clampInt(exposure + 1, 0, kMaxExposure);
+            snprintf(message, sizeof(message),
+                     "You pay with a memory. The speakers thank you in a voice that used to belong to somebody warm.");
+        } else if (choice == 2) {
+            storyOutcome[index] = 3;
+            siteCache[2] = clampInt(siteCache[2] + 2, 0, sites[2].maxCache);
+            siteAttention[2] = clampInt(siteAttention[2] + 2, 0, kMaxSiteAttention);
+            snprintf(message, sizeof(message),
+                     "You feed the Manager Below. By dawn, hunger has loyalty cards, armed greeters, and rules.");
+        } else {
+            storyOutcome[index] = 4;
+            siteAttention[2] = siteAttention[2] > 3 ? static_cast<uint8_t>(siteAttention[2] - 3) : 0;
+            grantTradeGoods(8);
+            snprintf(message, sizeof(message),
+                     "You shut down the PA. The final announcement is static; Milo cries because it is finally honest.");
+        }
+    } else if (arc == StoryArc::PersonWhoNeverEntered) {
+        storyStage[index] = 3;
+        if (choice == 0) {
+            storyOutcome[index] = 0;
+            siteAttention[1] = siteAttention[1] > 2 ? static_cast<uint8_t>(siteAttention[1] - 2) : 0;
+            if (!hasCatalogItem(kBorrowedShadowItem)) {
+                grantRewardItem(kBorrowedShadowItem);
+            }
+            snprintf(message, sizeof(message),
+                     "You erase the Other Runner. By dawn, the cameras remember less, and so do two people who owed favours.");
+        } else if (choice == 1) {
+            storyOutcome[index] = 1;
+            snprintf(message, sizeof(message),
+                     "You bargain with the Other Runner. Your shadow learns the clinic route; its courtesy is the problem.");
+        } else if (choice == 2) {
+            storyOutcome[index] = 2;
+            siteIntel[1] = kMaxSiteIntel;
+            snprintf(message, sizeof(message),
+                     "You trade identities. Nobody can prove you are you; it feels like freedom until the clinic asks who to save.");
+        } else {
+            storyOutcome[index] = 3;
+            grantTradeGoods(12);
+            siteAttention[1] = clampInt(siteAttention[1] + 3, 0, kMaxSiteAttention);
+            snprintf(message, sizeof(message),
+                     "You sell the duplicate. By morning, three people have bought your face, and two wear it better.");
+        }
+    } else {
+        snprintf(message, sizeof(message), "The rumour folds back into the rain.");
+    }
+
+    snprintf(rewardTitle, sizeof(rewardTitle), "%s", storyTitle(arc));
+    snprintf(rewardSummary, sizeof(rewardSummary), "%s", message);
+    setStatus(message);
+    currentScreen = Screen::Reward;
+    screenDirty = true;
+}
+
 void advanceBatteriesForDead(UiAction action, OutcomeLevel outcome, LeadKind lead, char* message, size_t messageSize) {
     const uint8_t arc = storyIndex(StoryArc::BatteriesForTheDead);
     if (!outcomeHasReward(outcome)) {
         return;
     }
     if (storyStage[arc] == 1 && currentSite == 1 && action == UiAction::FollowLead && lead == LeadKind::Contact) {
-        storyStage[arc] = 2;
-        storyOutcome[arc] = 3;
-        grantTradeGoods(10);
-        siteAttention[3] = clampInt(siteAttention[3] + 2, 0, kMaxSiteAttention);
-        appendAbilityNote(message, messageSize,
-                          "You sell the frequency. By morning the market rents little radios full of last words.");
+        requestStoryDecision(StoryArc::BatteriesForTheDead, message, messageSize);
         return;
     }
     if (currentSite != 3) {
@@ -2048,26 +2238,7 @@ void advanceBatteriesForDead(UiAction action, OutcomeLevel outcome, LeadKind lea
     }
     if (storyStage[arc] == 1 && action == UiAction::FollowLead &&
         (lead == LeadKind::Door || lead == LeadKind::Anomaly)) {
-        storyStage[arc] = 2;
-        if (equippedCatalogItem(kRailPistolItem)) {
-            storyOutcome[arc] = 2;
-            siteAttention[3] = siteAttention[3] > 2 ? static_cast<uint8_t>(siteAttention[3] - 2) : 0;
-            exposure = clampInt(exposure - 1, 0, kMaxExposure);
-            appendAbilityNote(message, messageSize,
-                              "You silence Station Mercy. Relay Grave is only wind and metal for one honest minute.");
-        } else if (equippedCatalogItem(kCopperToothRadioItem) || equippedCatalogItem(kDeadPagerItem)) {
-            storyOutcome[arc] = 4;
-            if (!hasCatalogItem(kCopperToothRadioItem)) {
-                grantRewardItem(kCopperToothRadioItem);
-            }
-            appendAbilityNote(message, messageSize,
-                              "You keep one voice. It moves into your pocket and says it is not lonely too quickly.");
-        } else {
-            storyOutcome[arc] = 1;
-            siteIntel[3] = kMaxSiteIntel;
-            appendAbilityNote(message, messageSize,
-                              "You preserve the Choir. First Relay observe each day now feels like it knows a path.");
-        }
+        requestStoryDecision(StoryArc::BatteriesForTheDead, message, messageSize);
     }
 }
 
@@ -2084,38 +2255,7 @@ void advanceLastSaleAtB2(UiAction action, OutcomeLevel outcome, LeadKind lead, c
     }
     if (storyStage[arc] == 1 && action == UiAction::FollowLead &&
         (lead == LeadKind::Door || lead == LeadKind::Cache || lead == LeadKind::Anomaly)) {
-        storyStage[arc] = 2;
-        if (equippedCatalogItem(kRailPistolItem) || equippedCatalogItem(kSolderRigItem) ||
-            equippedCatalogItem(kColdLanternItem)) {
-            storyOutcome[arc] = 4;
-            siteAttention[2] = siteAttention[2] > 3 ? static_cast<uint8_t>(siteAttention[2] - 3) : 0;
-            grantTradeGoods(8);
-            appendAbilityNote(message, messageSize,
-                              "You shut down the Manager Below. Milo cries because the static is finally honest.");
-        } else if (equippedCatalogItem(kDrownedRegisterItem) || equippedCatalogItem(kCheckoutOracleItem) ||
-                   equippedCatalogItem(kEmptyNameTagItem)) {
-            storyOutcome[arc] = 3;
-            siteCache[2] = clampInt(siteCache[2] + 2, 0, sites[2].maxCache);
-            siteAttention[2] = clampInt(siteAttention[2] + 2, 0, kMaxSiteAttention);
-            appendAbilityNote(message, messageSize,
-                              "You feed the Manager Below. Mall cache improves, and hunger gets a loyalty card.");
-        } else if (equippedCatalogItem(kWhiteReceiptItem) || equippedCatalogItem(kTenthButtonItem)) {
-            storyOutcome[arc] = 2;
-            if (!hasCatalogItem(kTenthButtonItem)) {
-                grantRewardItem(kTenthButtonItem);
-            }
-            exposure = clampInt(exposure + 1, 0, kMaxExposure);
-            appendAbilityNote(message, messageSize,
-                              "You pay with a memory. The speakers thank you in a voice that used to be warm.");
-        } else {
-            storyOutcome[arc] = 1;
-            siteIntel[2] = kMaxSiteIntel;
-            if (!hasCatalogItem(kMedPackItem)) {
-                grantRewardItem(kMedPackItem);
-            }
-            appendAbilityNote(message, messageSize,
-                              "You save Hessa's family cleanly. The Mall announces a closing time and means mercy.");
-        }
+        requestStoryDecision(StoryArc::LastSaleAtB2, message, messageSize);
     }
 }
 
@@ -2134,31 +2274,7 @@ void advancePersonWhoNeverEntered(UiAction action, OutcomeLevel outcome, LeadKin
     }
     if (storyStage[arc] == 2 && currentSite == 4 &&
         (lead == LeadKind::Trail || lead == LeadKind::Anomaly || action == UiAction::Explore)) {
-        storyStage[arc] = 3;
-        if (equippedCatalogItem(kRailPistolItem)) {
-            storyOutcome[arc] = 0;
-            siteAttention[1] = siteAttention[1] > 2 ? static_cast<uint8_t>(siteAttention[1] - 2) : 0;
-            if (!hasCatalogItem(kBorrowedShadowItem)) {
-                grantRewardItem(kBorrowedShadowItem);
-            }
-            appendAbilityNote(message, messageSize,
-                              "You erase the Other Runner. By dawn, the cameras remember less.");
-        } else if (equippedCatalogItem(kNullCharmItem) || equippedCatalogItem(kBorrowedShadowItem)) {
-            storyOutcome[arc] = 1;
-            appendAbilityNote(message, messageSize,
-                              "You bargain with the Other Runner. Your shadow learns the clinic route.");
-        } else if (equippedCatalogItem(kEmptyNameTagItem) || equippedCatalogItem(kDebtCollectorsCoatItem)) {
-            storyOutcome[arc] = 2;
-            siteIntel[1] = kMaxSiteIntel;
-            appendAbilityNote(message, messageSize,
-                              "You trade identities. Nobody can prove you are you, which is almost freedom.");
-        } else {
-            storyOutcome[arc] = 3;
-            grantTradeGoods(12);
-            siteAttention[1] = clampInt(siteAttention[1] + 3, 0, kMaxSiteAttention);
-            appendAbilityNote(message, messageSize,
-                              "You sell the duplicate. By morning, three people have bought your face.");
-        }
+        requestStoryDecision(StoryArc::PersonWhoNeverEntered, message, messageSize);
     }
 }
 
@@ -2588,6 +2704,7 @@ void resolveFieldAction(UiAction action) {
     if (blueMilkBlurReady) {
         blueMilkBlurReady = false;
     }
+    pendingStoryArc = StoryArc::Count;
     advanceStoryArcs(action, outcome, lead, message, sizeof(message));
     appendAbilityNote(message, sizeof(message), abilityNote);
     snprintf(rewardTitle, sizeof(rewardTitle), "%s Complete", actionTitle);
@@ -2595,7 +2712,7 @@ void resolveFieldAction(UiAction action) {
     setStatus(message);
     spendTime(spentTicks);
     checkCollapse();
-    currentScreen = Screen::Reward;
+    currentScreen = hasPendingStoryDecision() ? Screen::StoryDecision : Screen::Reward;
     screenDirty = true;
 }
 
@@ -2747,6 +2864,9 @@ void handleAction(UiAction action, int16_t param) {
         case UiAction::Tracker:
             currentScreen = Screen::Tracker;
             screenDirty = true;
+            break;
+        case UiAction::ChooseStory:
+            completeStoryDecision(static_cast<uint8_t>(param));
             break;
         case UiAction::SelectSite:
             if (param >= 0 && param < static_cast<int16_t>(kSiteCount)) {
@@ -3929,6 +4049,69 @@ void drawTrackerScreen() {
     }
 }
 
+// Draws a forced story branch once an arc reaches its decision point.
+void drawStoryDecisionScreen() {
+    if (!hasPendingStoryDecision()) {
+        currentScreen = Screen::Tracker;
+        drawTrackerScreen();
+        return;
+    }
+
+    auto& display = M5.Display;
+    clearButtons();
+    display.fillScreen(rgb(3, 6, 9));
+    drawHeader();
+
+    const StoryArc arc = pendingStoryArc;
+    const int32_t width = display.width();
+    const int32_t height = display.height();
+    const int32_t margin = 18;
+    const int32_t top = 82;
+    const int32_t bottomH = 72;
+    const int32_t contentH = height - top - bottomH - margin;
+    const uint16_t bg = rgb(8, 12, 17);
+
+    drawPanel(margin, top, width - margin * 2, contentH, rgb(230, 180, 70));
+    display.setFont(&fonts::Font4);
+    drawTextFit(storyTitle(arc), margin + 18, top + 16, width - margin * 2 - 36, TFT_WHITE, bg);
+    display.setFont(&fonts::Font2);
+    drawWrappedText(storyDecisionPrompt(arc), margin + 20, top + 58, width - margin * 2 - 40, 3,
+                    rgb(190, 208, 204), bg);
+
+    display.drawFastHLine(margin + 18, top + 132, width - margin * 2 - 36, rgb(70, 86, 82));
+    drawTextFit("Choose how the rumour becomes true", margin + 20, top + 148, width - margin * 2 - 40,
+                rgb(130, 230, 200), bg);
+
+    const int32_t choiceGap = 10;
+    const int32_t choiceTop = top + 180;
+    const int32_t choiceH = (contentH - 112 - choiceGap * 3) / 4;
+    const int32_t choiceX = margin + 16;
+    const int32_t choiceW = width - margin * 2 - 32;
+    for (uint8_t i = 0; i < 4; ++i) {
+        const int32_t y = choiceTop + i * (choiceH + choiceGap);
+        const uint16_t accent = i == 0 ? rgb(120, 220, 160)
+                                : i == 1 ? rgb(120, 180, 235)
+                                : i == 2 ? rgb(230, 180, 70)
+                                         : rgb(220, 90, 190);
+        const uint16_t cardBg = rgb(12, 18, 24);
+        display.fillRoundRect(choiceX, y, choiceW, choiceH, 6, cardBg);
+        display.drawRoundRect(choiceX, y, choiceW, choiceH, 6, accent);
+        display.fillRect(choiceX + 12, y + 12, 8, choiceH - 24, accent);
+        display.setFont(&fonts::Font2);
+        drawWrappedText(storyChoiceText(arc, i), choiceX + 34, y + 14, choiceW - 210, 2, rgb(190, 208, 204), cardBg);
+        addButton(storyChoiceLabel(arc, i), choiceX + choiceW - 158, y + 16, 134, choiceH - 32, UiAction::ChooseStory,
+                  i, accent);
+    }
+
+    const int32_t buttonY = height - bottomH;
+    drawTextFit("Choice applies immediately. The city keeps the receipt.", margin + 18, buttonY + 24,
+                width - margin * 2 - 36, rgb(150, 168, 170), rgb(3, 6, 9));
+
+    for (uint8_t i = 0; i < buttonCount; ++i) {
+        drawButton(buttons[i]);
+    }
+}
+
 // Routes the dirty-screen redraw to the active screen renderer.
 void drawCurrentScreen() {
     switch (currentScreen) {
@@ -3949,6 +4132,9 @@ void drawCurrentScreen() {
             break;
         case Screen::Tracker:
             drawTrackerScreen();
+            break;
+        case Screen::StoryDecision:
+            drawStoryDecisionScreen();
             break;
         case Screen::Field:
             drawFieldScreen();
@@ -4019,6 +4205,7 @@ void initializeGame() {
         storyStage[i] = 0;
         storyOutcome[i] = 0;
     }
+    pendingStoryArc = StoryArc::Count;
 
     inventory[0] = 0;
     inventory[1] = 3;
