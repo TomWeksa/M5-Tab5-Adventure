@@ -77,6 +77,8 @@ enum class UiAction : uint8_t {
     EquipOrUse,
     InventoryPrev,
     InventoryNext,
+    ItemTextPrev,
+    ItemTextNext,
     OpenTrade,
     ToggleTradeOffer,
     ToggleTradeWant,

@@ -105,6 +105,7 @@ uint8_t currentSite = 0;
 uint8_t selectedMapSite = 1;
 int16_t selectedInventorySlot = 0;
 uint8_t inventoryPage = 0;
+uint8_t itemTextPage = 0;
 uint8_t tradePage = 0;
 uint8_t timeTick = 0;
 uint8_t siteAttention[kSiteCapacity];
@@ -1756,6 +1757,72 @@ void drawWrappedText(const char* text, int32_t x, int32_t y, int32_t w, uint8_t 
     }
 }
 
+// Renders or measures a wrapped prose block, skipping whole lines for paged text windows.
+uint16_t renderPagedWrappedText(const char* text, int32_t x, int32_t y, int32_t w, uint8_t maxLines,
+                                uint16_t firstLine, uint16_t color, uint16_t background, bool render) {
+    auto& display = M5.Display;
+    display.setFont(&fonts::Font2);
+    display.setTextColor(color, background);
+
+    char line[160] = "";
+    char word[48] = "";
+    uint8_t wordLen = 0;
+    uint16_t lineIndex = 0;
+    uint8_t drawn = 0;
+    const int32_t lineHeight = 22;
+
+    const auto flushLine = [&]() {
+        if (line[0] == '\0') {
+            return;
+        }
+        if (render && lineIndex >= firstLine && drawn < maxLines) {
+            drawTextFit(line, x, y + drawn * lineHeight, w, color, background);
+            ++drawn;
+        }
+        ++lineIndex;
+        line[0] = '\0';
+    };
+
+    const auto flushWord = [&]() {
+        if (wordLen == 0) {
+            return;
+        }
+
+        char candidate[208];
+        if (line[0] == '\0') {
+            snprintf(candidate, sizeof(candidate), "%s", word);
+        } else {
+            snprintf(candidate, sizeof(candidate), "%s %s", line, word);
+        }
+
+        if (display.textWidth(candidate) > w && line[0] != '\0') {
+            flushLine();
+            snprintf(line, sizeof(line), "%s", word);
+        } else {
+            snprintf(line, sizeof(line), "%s", candidate);
+        }
+
+        wordLen = 0;
+        word[0] = '\0';
+    };
+
+    for (const char* cursor = text; *cursor != '\0'; ++cursor) {
+        if (*cursor == ' ' || *cursor == '\t') {
+            flushWord();
+        } else if (*cursor == '\n') {
+            flushWord();
+            flushLine();
+        } else if (wordLen < sizeof(word) - 1) {
+            word[wordLen++] = *cursor;
+            word[wordLen] = '\0';
+        }
+    }
+    flushWord();
+    flushLine();
+
+    return lineIndex;
+}
+
 // Draws a labeled meter for body, exposure, and clock pressure.
 void drawMeter(int32_t x, int32_t y, int32_t w, int32_t h, int value, int maxValue, uint16_t color, const char* label) {
     auto& display = M5.Display;
@@ -3007,6 +3074,7 @@ void handleAction(UiAction action, int16_t param) {
         case UiAction::InspectItem:
             if (validInventorySlot(param)) {
                 selectedInventorySlot = param;
+                itemTextPage = 0;
                 currentScreen = Screen::ItemDetail;
                 screenDirty = true;
             }
@@ -3025,6 +3093,16 @@ void handleAction(UiAction action, int16_t param) {
             break;
         case UiAction::InventoryNext:
             ++inventoryPage;
+            screenDirty = true;
+            break;
+        case UiAction::ItemTextPrev:
+            if (itemTextPage > 0) {
+                --itemTextPage;
+                screenDirty = true;
+            }
+            break;
+        case UiAction::ItemTextNext:
+            ++itemTextPage;
             screenDirty = true;
             break;
         case UiAction::OpenTrade:
@@ -3607,6 +3685,25 @@ void drawRunnerNetRows(const Stats& current, const Stats& preview, int32_t x, in
                          preview.strain - current.strain);
 }
 
+// Draws all runner stats in one fixed-height line for compact preview tables.
+void drawRunnerStatsLine(const char* label, const Stats& stats, int32_t x, int32_t y, int32_t maxWidth,
+                         uint16_t color, uint16_t bg) {
+    M5.Display.setFont(&fonts::Font2);
+    drawFormattedTextFit(x, y, maxWidth, color, bg, "%s: Grit %d  Tech %d  Scan %d  Ghost %d  Filter %d  Strain %d",
+                         label, stats.grit, stats.tech, stats.scan, stats.ghost, stats.filter, stats.strain);
+}
+
+// Draws the replacement delta in one fixed-height line so it cannot collide with effects.
+void drawRunnerNetLine(const char* label, const Stats& current, const Stats& preview, int32_t x, int32_t y,
+                       int32_t maxWidth, uint16_t bg) {
+    M5.Display.setFont(&fonts::Font2);
+    drawFormattedTextFit(x, y, maxWidth, rgb(190, 220, 210), bg,
+                         "%s: Grit %+d  Tech %+d  Scan %+d  Ghost %+d  Filter %+d  Strain %+d", label,
+                         preview.grit - current.grit, preview.tech - current.tech, preview.scan - current.scan,
+                         preview.ghost - current.ghost, preview.filter - current.filter,
+                         preview.strain - current.strain);
+}
+
 // Draws the common field-photo frame behind every item illustration.
 void drawItemImageFrame(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t accent) {
     auto& display = M5.Display;
@@ -3869,33 +3966,63 @@ void drawItemDetailScreen() {
         drawTextFit("EQUIPPED", detailX + detailW - 116, top + 54, 98, rgb(120, 240, 190), bg);
     }
 
+    const int32_t effectsH = 92;
+    const int32_t previewH = 100;
+    const int32_t effectsTop = top + imageH - effectsH;
+    const int32_t previewTop = effectsTop - previewH - 10;
+    const int32_t readTitleY = top + 104;
+    const int32_t readBoxY = top + 134;
+    const int32_t readBoxH = previewTop - readBoxY - 14;
+    const int32_t readX = detailX + 20;
+    const int32_t readW = detailW - 40;
+    const uint16_t readBg = rgb(10, 16, 20);
+    const int32_t readableH = readBoxH > 18 ? readBoxH - 18 : 22;
+    uint8_t readLines = static_cast<uint8_t>(readableH / 22);
+    if (readLines < 1) {
+        readLines = 1;
+    }
+    char readText[640];
+    snprintf(readText, sizeof(readText), "Description. %s\nField Read. %s", item.description, item.fieldRead);
+    const uint16_t totalReadLines =
+        renderPagedWrappedText(readText, readX + 12, readBoxY + 10, readW - 24, readLines, 0,
+                               rgb(205, 218, 212), readBg, false);
+    const uint8_t maxTextPage = totalReadLines <= readLines ? 0 : static_cast<uint8_t>((totalReadLines - 1) / readLines);
+    if (itemTextPage > maxTextPage) {
+        itemTextPage = maxTextPage;
+    }
+
     display.drawFastHLine(detailX + 18, top + 88, detailW - 36, rgb(55, 70, 70));
-    display.setTextColor(rgb(215, 222, 212), bg);
-    drawWrappedText(item.description, detailX + 20, top + 112, detailW - 40, 4, rgb(215, 222, 212), bg);
+    display.setFont(&fonts::Font2);
+    drawTextFit("Description", readX, readTitleY, readW - 250, rgb(125, 230, 205), bg);
+    drawFormattedTextFit(detailX + detailW - 260, readTitleY + 4, 72, rgb(150, 168, 170), bg, "%u/%u",
+                         static_cast<unsigned>(itemTextPage + 1), static_cast<unsigned>(maxTextPage + 1));
+    addButton("Prev", detailX + detailW - 176, readTitleY - 6, 76, 36, UiAction::ItemTextPrev, 0, item.color,
+              itemTextPage > 0);
+    addButton("Next", detailX + detailW - 92, readTitleY - 6, 72, 36, UiAction::ItemTextNext, 0, item.color,
+              itemTextPage < maxTextPage);
+    display.fillRoundRect(readX, readBoxY, readW, readBoxH, 6, readBg);
+    display.drawRoundRect(readX, readBoxY, readW, readBoxH, 6, rgb(40, 58, 60));
+    renderPagedWrappedText(readText, readX + 12, readBoxY + 10, readW - 24, readLines,
+                           static_cast<uint16_t>(itemTextPage) * readLines, rgb(205, 218, 212), readBg, true);
 
-    display.setTextColor(rgb(125, 230, 205), bg);
-    drawTextFit("Field Read", detailX + 20, top + 222, detailW - 40, rgb(125, 230, 205), bg);
-    drawWrappedText(item.fieldRead, detailX + 20, top + 252, detailW - 40, 3, rgb(170, 188, 184), bg);
-
-    display.drawFastHLine(detailX + 18, top + 334, detailW - 36, rgb(55, 70, 70));
-    drawTextFit("Runner Preview", detailX + 20, top + 354, detailW - 40, rgb(125, 230, 205), bg);
+    display.drawFastHLine(detailX + 18, previewTop, detailW - 36, rgb(55, 70, 70));
+    drawTextFit("Runner Preview", detailX + 20, previewTop + 16, detailW - 40, rgb(125, 230, 205), bg);
     drawTextFit("Guide: Grit force, Tech devices, Scan reads, Ghost heat, Filter exposure, Strain risk.",
-                detailX + 20, top + 376, detailW - 40, rgb(170, 188, 184), bg);
-    drawTextFit("Current stats", detailX + 20, top + 402, detailW - 40, rgb(150, 168, 170), bg);
-    drawRunnerStatsRows(currentStats, detailX + 20, top + 424, detailW - 40, rgb(220, 230, 225), bg);
-    drawTextFit(equippedNow ? "Already equipped" : (canPreviewEquip ? "Net if equipped" : "Use effect below"),
-                detailX + 20, top + 468, detailW - 40, rgb(150, 168, 170), bg);
+                detailX + 20, previewTop + 38, detailW - 40, rgb(170, 188, 184), bg);
+    drawRunnerStatsLine("Current", currentStats, detailX + 20, previewTop + 64, detailW - 40, rgb(220, 230, 225), bg);
     if (canPreviewEquip) {
-        drawRunnerNetRows(currentStats, previewStats, detailX + 20, top + 490, detailW - 40, bg);
+        drawRunnerNetLine(equippedNow ? "Net" : "Net if equipped", currentStats, previewStats, detailX + 20,
+                          previewTop + 86, detailW - 40, bg);
     } else {
-        drawTextFit("No slot change; use effect is listed below.", detailX + 20, top + 490, detailW - 40,
+        drawTextFit("Use effect: no equipment slot changes; body, dose, and attention are below.",
+                    detailX + 20, previewTop + 86, detailW - 40,
                     rgb(190, 220, 210), bg);
     }
 
-    display.drawFastHLine(detailX + 18, top + imageH - 96, detailW - 36, rgb(55, 70, 70));
-    drawTextFit("Effects", detailX + 20, top + imageH - 76, detailW - 40, rgb(210, 220, 215), bg);
-    drawFullItemStats(item, detailX + 20, top + imageH - 52, detailW - 40, bg);
-    drawFormattedTextFit(detailX + 20, top + imageH - 18, detailW - 40, rgb(145, 160, 158), bg,
+    display.drawFastHLine(detailX + 18, effectsTop, detailW - 36, rgb(55, 70, 70));
+    drawTextFit("Effects", detailX + 20, effectsTop + 16, detailW - 40, rgb(210, 220, 215), bg);
+    drawFullItemStats(item, detailX + 20, effectsTop + 40, detailW - 40, bg);
+    drawFormattedTextFit(detailX + 20, effectsTop + 70, detailW - 40, rgb(145, 160, 158), bg,
                          "use %s  body %+d  dose %+d  attention %+d", itemUseKindText(item.use.kind),
                          item.use.healthDelta, item.use.exposureDelta, item.use.attentionDelta);
 
@@ -4359,6 +4486,7 @@ void initializeColors() {
 
 // Seeds the starting game state, inventory, equipment, and site caches.
 void initializeGame() {
+    itemTextPage = 0;
     warmBatterySpent = false;
     railPistolSpent = false;
     quietNailgunSpent = false;
