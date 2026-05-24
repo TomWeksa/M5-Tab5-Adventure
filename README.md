@@ -20,6 +20,7 @@ Neon Exclusion is an original cyberpunk/post-apocalyptic survival adventure abou
 - Site pressure: observing reveals leads, exploring drains finite cache, and noisy actions build heat that raises risk.
 - Narrative signal map: travel is chosen from an atmospheric satellite-style route map with destination-specific landmark icons, site state, route cost, exposure, and distorted district notes.
 - Inventory taps open item inspection cards with field images, flavor text, stat effects, and equip/use actions.
+- Items use a shared data-driven definition for stats, color, image kind, field-read text, and generic use effects.
 
 ## Design Direction
 

@@ -21,6 +21,30 @@ enum class Slot : uint8_t {
     Consumable,
 };
 
+enum class ItemImageKind : uint8_t {
+    PatchMask,
+    RubberTrench,
+    MirrorweaveCoat,
+    CoilDetector,
+    GlassNeedle,
+    PrybarKit,
+    SolderRig,
+    QuietNailgun,
+    RailPistol,
+    WarmBattery,
+    MourningLens,
+    NullCharm,
+    IodineAmpoule,
+    CannedCoffee,
+    CopperSaint,
+};
+
+enum class ItemUseKind : uint8_t {
+    None,
+    Equip,
+    Consume,
+};
+
 enum class LeadKind : uint8_t {
     None,
     Contact,
@@ -45,10 +69,21 @@ enum class UiAction : uint8_t {
     Rest,
 };
 
+struct ItemUseProfile {
+    ItemUseKind kind;
+    int8_t healthDelta;
+    int8_t exposureDelta;
+    int8_t scrapDelta;
+    bool consumedOnUse;
+    const char* label;
+    const char* resultText;
+};
+
 struct Item {
     const char* name;
     const char* tag;
     Slot slot;
+    ItemImageKind image;
     int8_t grit;
     int8_t tech;
     int8_t scan;
@@ -56,8 +91,13 @@ struct Item {
     int8_t filter;
     int8_t strain;
     uint8_t value;
+    uint8_t tintR;
+    uint8_t tintG;
+    uint8_t tintB;
     uint16_t color;
+    ItemUseProfile use;
     const char* description;
+    const char* fieldRead;
 };
 
 struct Site {
@@ -144,21 +184,66 @@ uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
 }
 
 Item itemCatalog[] = {
-    {"Patch Mask", "suit", Slot::Suit, 0, 0, 0, 0, 1, 0, 6, 0, "A patched respirator and tarred hood. Bad fashion, good filters."},
-    {"Rubber Trench", "suit", Slot::Suit, 1, 0, 0, -1, 2, 0, 14, 0, "Heavy sealed coat from a cleanup crew that never came back."},
-    {"Mirrorweave Coat", "suit", Slot::Suit, 0, 1, 0, 2, 1, 0, 18, 0, "Chameleon threads shimmer under old advert light."},
-    {"Coil Detector", "detector", Slot::Detector, 0, 0, 1, 0, 0, 0, 8, 0, "Cheap copper loop detector. It screams before the world bends."},
-    {"Glass Needle", "detector", Slot::Detector, 0, 1, 3, 0, 0, 1, 20, 0, "A precise anomaly pick. Every reading leaves a headache."},
-    {"Prybar Kit", "tool", Slot::Tool, 1, 0, 0, 0, 0, 0, 7, 0, "A prybar, pliers, tape and stubbornness in a cracked roll."},
-    {"Solder Rig", "tool", Slot::Tool, 0, 3, 0, 0, 0, 0, 19, 0, "Battery iron, fiber patcher and black market firmware clips."},
-    {"Quiet Nailgun", "weapon", Slot::Weapon, 1, 0, 0, 2, 0, 0, 12, 0, "Industrial nailer tuned for close work and low attention."},
-    {"Rail Pistol", "weapon", Slot::Weapon, 3, 0, 0, -1, 0, 1, 24, 0, "Hard recoil, bright flash, very persuasive."},
-    {"Warm Battery", "artifact", Slot::Artifact, 0, 2, 0, 0, 0, 2, 30, 0, "A dry cell that charges itself and warms when lied to."},
-    {"Mourning Lens", "artifact", Slot::Artifact, 0, 0, 3, 0, 0, 2, 34, 0, "Smoke-dark glass that shows paths people failed to take."},
-    {"Null Charm", "artifact", Slot::Artifact, 0, 0, 0, 2, 1, 1, 28, 0, "A cold trinket that makes cameras lose interest."},
-    {"Iodine Ampoule", "dose", Slot::Consumable, 0, 0, 0, 0, 0, 0, 5, 0, "Bitter anti-rad dose. You only taste pennies for an hour."},
-    {"Canned Coffee", "dose", Slot::Consumable, 0, 0, 0, 0, 0, 0, 4, 0, "Pre-collapse stimulant syrup. Technically food."},
-    {"Copper Saint", "artifact", Slot::Artifact, 2, 0, 0, 0, 0, 2, 38, 0, "A little idol that hums in broken service tunnels."},
+    {"Patch Mask", "suit", Slot::Suit, ItemImageKind::PatchMask, 0, 0, 0, 0, 1, 0, 6, 110, 150, 150, 0,
+     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "You settle the mask straps until each breath sounds borrowed."},
+     "A patched respirator and tarred hood. Bad fashion, good filters.",
+     "Worn against weather, bad air, panic sweat, and whatever the rain is learning to become."},
+    {"Rubber Trench", "suit", Slot::Suit, ItemImageKind::RubberTrench, 1, 0, 0, -1, 2, 0, 14, 90, 180, 120, 0,
+     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "The trench coat seals with a rubber sigh and a smell of old cleanup crews."},
+     "Heavy sealed coat from a cleanup crew that never came back.",
+     "Heavy protection for hot rain and sharp debris. It keeps you alive, but not graceful."},
+    {"Mirrorweave Coat", "suit", Slot::Suit, ItemImageKind::MirrorweaveCoat, 0, 1, 0, 2, 1, 0, 18, 190, 90, 210, 0,
+     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "Mirrorweave threads take the light and give back someone less obvious."},
+     "Chameleon threads shimmer under old advert light.",
+     "A stealth coat with firmware in the fabric. Cameras dislike it. So do honest mirrors."},
+    {"Coil Detector", "detector", Slot::Detector, ItemImageKind::CoilDetector, 0, 0, 1, 0, 0, 0, 8, 80, 200, 220, 0,
+     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "The coil wakes with a dry click and begins listening under the pavement."},
+     "Cheap copper loop detector. It screams before the world bends.",
+     "Useful when the world lies visually. Crude, sturdy, and loud enough to keep you cautious."},
+    {"Glass Needle", "detector", Slot::Detector, ItemImageKind::GlassNeedle, 0, 1, 3, 0, 0, 1, 20, 90, 230, 190, 0,
+     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "The glass needle points somewhere your hand does not want to go."},
+     "A precise anomaly pick. Every reading leaves a headache.",
+     "Fine anomaly work at a cost. It finds the quiet impossibilities and leaves a little static behind your eyes."},
+    {"Prybar Kit", "tool", Slot::Tool, ItemImageKind::PrybarKit, 1, 0, 0, 0, 0, 0, 7, 220, 180, 70, 0,
+     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "You roll the kit tight. The prybar knocks once against your boot."},
+     "A prybar, pliers, tape and stubbornness in a cracked roll.",
+     "Turns locked places into negotiations. Also turns quiet places into loud ones."},
+    {"Solder Rig", "tool", Slot::Tool, ItemImageKind::SolderRig, 0, 3, 0, 0, 0, 0, 19, 230, 120, 70, 0,
+     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "The solder rig warms against your palm and starts looking for ports."},
+     "Battery iron, fiber patcher and black market firmware clips.",
+     "For powered doors, dead drones, wet panels, and anything pretending to be offline."},
+    {"Quiet Nailgun", "weapon", Slot::Weapon, ItemImageKind::QuietNailgun, 1, 0, 0, 2, 0, 0, 12, 210, 80, 160, 0,
+     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "The nailgun settles under your coat, blunt and professionally quiet."},
+     "Industrial nailer tuned for close work and low attention.",
+     "A problem solver with a small sound. Good for threats, locks, and bad ideas."},
+    {"Rail Pistol", "weapon", Slot::Weapon, ItemImageKind::RailPistol, 3, 0, 0, -1, 0, 1, 24, 230, 70, 90, 0,
+     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "The rail pistol arms bright enough to make nearby shadows take a step back."},
+     "Hard recoil, bright flash, very persuasive.",
+     "A loud answer. It wins arguments and starts investigations."},
+    {"Warm Battery", "artifact", Slot::Artifact, ItemImageKind::WarmBattery, 0, 2, 0, 0, 0, 2, 30, 240, 190, 80, 0,
+     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "The battery warms when you lie to yourself about why you kept it."},
+     "A dry cell that charges itself and warms when lied to.",
+     "Not equipment exactly. More like a small rule from somewhere else, pretending to be power storage."},
+    {"Mourning Lens", "artifact", Slot::Artifact, ItemImageKind::MourningLens, 0, 0, 3, 0, 0, 2, 34, 120, 150, 250, 0,
+     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "The lens darkens the world and reveals the edges of old mistakes."},
+     "Smoke-dark glass that shows paths people failed to take.",
+     "It sharpens observation by showing absence. The strain is remembering what was never yours."},
+    {"Null Charm", "artifact", Slot::Artifact, ItemImageKind::NullCharm, 0, 0, 0, 2, 1, 1, 28, 120, 230, 170, 0,
+     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "The charm goes cold. For a moment, even your reflection loses interest."},
+     "A cold trinket that makes cameras lose interest.",
+     "Carried invisibility with a price tag written in missing minutes."},
+    {"Iodine Ampoule", "dose", Slot::Consumable, ItemImageKind::IodineAmpoule, 0, 0, 0, 0, 0, 0, 5, 170, 230, 80, 0,
+     {ItemUseKind::Consume, 0, -5, 0, true, "Use Dose", "The iodine burns all the way down. Exposure drops, hands stop shaking."},
+     "Bitter anti-rad dose. You only taste pennies for an hour.",
+     "Temporary mercy against accumulated dose. Useful before the shaking makes decisions for you."},
+    {"Canned Coffee", "dose", Slot::Consumable, ItemImageKind::CannedCoffee, 0, 0, 0, 0, 0, 0, 4, 180, 120, 80, 0,
+     {ItemUseKind::Consume, 2, 0, 0, true, "Drink", "Coffee syrup, cold and foul. You feel almost alive."},
+     "Pre-collapse stimulant syrup. Technically food.",
+     "A small bodily loan from a company that is probably still billing somebody."},
+    {"Copper Saint", "artifact", Slot::Artifact, ItemImageKind::CopperSaint, 2, 0, 0, 0, 0, 2, 38, 210, 130, 60, 0,
+     {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "The little copper figure hums like a service tunnel full of prayers."},
+     "A little idol that hums in broken service tunnels.",
+     "A heavy charm of courage or foolishness. In the exclusion, those are often the same material."},
 };
 
 Site sites[] = {
@@ -635,24 +720,27 @@ void equipInventorySlot(uint8_t invSlot) {
         return;
     }
     const Item& item = itemCatalog[inventory[invSlot]];
-    const int8_t equipSlot = equipIndexForSlot(item.slot);
-    if (equipSlot < 0) {
-        if (inventory[invSlot] == 12) {
-            exposure = clampInt(exposure - 5, 0, kMaxExposure);
+    if (item.use.kind == ItemUseKind::Consume) {
+        health = clampInt(health + item.use.healthDelta, 0, kMaxHealth);
+        exposure = clampInt(exposure + item.use.exposureDelta, 0, kMaxExposure);
+        scrap = clampInt(scrap + item.use.scrapDelta, 0, 999);
+        if (item.use.consumedOnUse) {
             inventory[invSlot] = -1;
-            setStatus("The iodine burns all the way down. Exposure drops, hands stop shaking.");
-        } else if (inventory[invSlot] == 13) {
-            health = clampInt(health + 2, 0, kMaxHealth);
-            inventory[invSlot] = -1;
-            setStatus("Coffee syrup, cold and foul. You feel almost alive.");
         }
+        setStatus(item.use.resultText);
         return;
     }
 
-    equipped[equipSlot] = invSlot;
-    char message[128];
-    snprintf(message, sizeof(message), "Equipped %s. In this place, gear is growth.", item.name);
-    setStatus(message);
+    if (item.use.kind == ItemUseKind::Equip) {
+        const int8_t equipSlot = equipIndexForSlot(item.slot);
+        if (equipSlot >= 0) {
+            equipped[equipSlot] = invSlot;
+            setStatus(item.use.resultText);
+            return;
+        }
+    }
+
+    setStatus("You turn the item over in your hands. It has no direct use yet.");
 }
 
 void addButton(const char* label, int32_t x, int32_t y, int32_t w, int32_t h, UiAction action, int16_t param,
@@ -1091,7 +1179,7 @@ void resolveFieldAction(UiAction action) {
                          site.name, actionCheckText(action), total, target, gain, leadName(foundLead));
             } else {
                 const uint8_t itemId = randomLootForAction(action);
-                const bool duplicate = hasCatalogItem(itemId) && itemCatalog[itemId].slot != Slot::Consumable;
+                const bool duplicate = hasCatalogItem(itemId) && itemCatalog[itemId].use.kind != ItemUseKind::Consume;
                 if (!duplicate && random(0, 100) < 58) {
                     char itemMessage[112];
                     addItem(itemId, itemMessage, sizeof(itemMessage));
@@ -1137,7 +1225,7 @@ void resolveFieldAction(UiAction action) {
                     --siteCache[currentSite];
                 }
                 const uint8_t itemId = randomLootForAction(action);
-                const bool duplicate = hasCatalogItem(itemId) && itemCatalog[itemId].slot != Slot::Consumable;
+                const bool duplicate = hasCatalogItem(itemId) && itemCatalog[itemId].use.kind != ItemUseKind::Consume;
                 if (lead == LeadKind::Anomaly) {
                     exposure = clampInt(exposure + 1, 0, kMaxExposure);
                     gain += 2;
@@ -1145,7 +1233,7 @@ void resolveFieldAction(UiAction action) {
                     gain += 3;
                 }
                 scrap += gain;
-                if (!duplicate || itemCatalog[itemId].slot == Slot::Consumable) {
+                if (!duplicate || itemCatalog[itemId].use.kind == ItemUseKind::Consume) {
                     char itemMessage[112];
                     addItem(itemId, itemMessage, sizeof(itemMessage));
                     snprintf(message, sizeof(message), "You %s the %s. %s %d/%d. +%d scrap. %s",
@@ -1747,16 +1835,15 @@ void drawItemImageFrame(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t acc
     }
 }
 
-void drawItemImage(uint8_t itemId, int32_t x, int32_t y, int32_t w, int32_t h) {
+void drawItemImage(const Item& item, int32_t x, int32_t y, int32_t w, int32_t h) {
     auto& display = M5.Display;
-    const Item& item = itemCatalog[itemId];
     const int32_t cx = x + w / 2;
     const int32_t cy = y + h / 2 + 6;
 
     drawItemImageFrame(x, y, w, h, item.color);
 
-    switch (itemId) {
-        case 0:  // Patch Mask
+    switch (item.image) {
+        case ItemImageKind::PatchMask:
             display.fillRoundRect(cx - 38, cy - 48, 76, 88, 26, rgb(54, 62, 58));
             display.fillRoundRect(cx - 25, cy - 20, 50, 42, 12, rgb(78, 86, 80));
             display.fillCircle(cx - 15, cy - 35, 11, rgb(24, 44, 48));
@@ -1767,7 +1854,7 @@ void drawItemImage(uint8_t itemId, int32_t x, int32_t y, int32_t w, int32_t h) {
             display.drawLine(cx - 45, cy - 20, cx - 68, cy + 10, rgb(82, 92, 84));
             display.drawLine(cx + 45, cy - 20, cx + 68, cy + 10, rgb(82, 92, 84));
             break;
-        case 1:  // Rubber Trench
+        case ItemImageKind::RubberTrench:
             display.fillTriangle(cx, cy - 70, cx - 55, cy + 58, cx + 55, cy + 58, rgb(36, 58, 46));
             display.fillTriangle(cx, cy - 52, cx - 22, cy + 50, cx + 22, cy + 50, rgb(48, 82, 60));
             display.drawLine(cx, cy - 62, cx, cy + 56, rgb(110, 130, 110));
@@ -1775,7 +1862,7 @@ void drawItemImage(uint8_t itemId, int32_t x, int32_t y, int32_t w, int32_t h) {
             display.drawLine(cx + 22, cy - 12, cx + 58, cy + 30, rgb(26, 40, 34));
             display.fillRect(cx - 18, cy - 50, 36, 10, rgb(74, 92, 74));
             break;
-        case 2:  // Mirrorweave Coat
+        case ItemImageKind::MirrorweaveCoat:
             display.fillTriangle(cx, cy - 70, cx - 58, cy + 58, cx + 58, cy + 58, rgb(70, 42, 86));
             display.fillTriangle(cx, cy - 52, cx - 24, cy + 50, cx + 24, cy + 50, rgb(110, 70, 128));
             for (int8_t i = -4; i <= 4; ++i) {
@@ -1783,7 +1870,7 @@ void drawItemImage(uint8_t itemId, int32_t x, int32_t y, int32_t w, int32_t h) {
                 display.drawLine(cx - 38, cy - 58 + i * 18, cx + 48, cy - 42 + i * 18, rgb(72, 170, 190));
             }
             break;
-        case 3:  // Coil Detector
+        case ItemImageKind::CoilDetector:
             display.drawCircle(cx - 28, cy - 18, 38, rgb(120, 92, 55));
             display.drawCircle(cx - 28, cy - 18, 28, rgb(180, 140, 78));
             display.drawCircle(cx - 28, cy - 18, 18, rgb(60, 48, 36));
@@ -1791,21 +1878,21 @@ void drawItemImage(uint8_t itemId, int32_t x, int32_t y, int32_t w, int32_t h) {
             display.fillRoundRect(cx + 48, cy + 44, 34, 18, 5, rgb(38, 45, 42));
             display.drawLine(cx - 52, cy - 46, cx + 8, cy + 12, rgb(210, 180, 95));
             break;
-        case 4:  // Glass Needle
+        case ItemImageKind::GlassNeedle:
             display.fillTriangle(cx - 10, cy - 70, cx + 18, cy + 42, cx - 38, cy + 42, rgb(44, 92, 96));
             display.drawTriangle(cx - 10, cy - 70, cx + 18, cy + 42, cx - 38, cy + 42, rgb(165, 245, 220));
             display.fillRect(cx - 16, cy + 38, 15, 38, rgb(55, 58, 54));
             display.drawLine(cx + 4, cy - 40, cx - 28, cy + 36, rgb(220, 255, 240));
             display.drawCircle(cx + 30, cy + 16, 12, rgb(80, 230, 190));
             break;
-        case 5:  // Prybar Kit
+        case ItemImageKind::PrybarKit:
             drawThickLine(cx - 54, cy + 42, cx + 48, cy - 45, rgb(92, 86, 74), 5);
             drawThickLine(cx - 54, cy + 42, cx + 48, cy - 45, rgb(150, 142, 120), 2);
             display.drawCircle(cx + 52, cy - 48, 15, rgb(160, 150, 128));
             display.fillRoundRect(cx - 62, cy - 44, 54, 28, 5, rgb(76, 54, 38));
             display.drawLine(cx - 54, cy - 28, cx - 14, cy - 28, rgb(170, 130, 85));
             break;
-        case 6:  // Solder Rig
+        case ItemImageKind::SolderRig:
             display.fillRoundRect(cx - 60, cy + 4, 58, 44, 5, rgb(42, 48, 50));
             display.fillRect(cx - 52, cy + 14, 38, 8, rgb(230, 110, 70));
             drawThickLine(cx - 4, cy + 20, cx + 58, cy - 40, rgb(78, 70, 64), 4);
@@ -1813,7 +1900,7 @@ void drawItemImage(uint8_t itemId, int32_t x, int32_t y, int32_t w, int32_t h) {
             display.drawLine(cx - 2, cy + 8, cx + 30, cy + 48, rgb(28, 28, 26));
             display.drawLine(cx + 30, cy + 48, cx + 60, cy + 28, rgb(28, 28, 26));
             break;
-        case 7:  // Quiet Nailgun
+        case ItemImageKind::QuietNailgun:
             display.fillRoundRect(cx - 60, cy - 30, 95, 34, 6, rgb(66, 66, 62));
             display.fillRect(cx + 28, cy - 22, 42, 10, rgb(38, 42, 40));
             display.fillTriangle(cx - 20, cy + 0, cx + 22, cy + 0, cx + 0, cy + 55, rgb(48, 50, 48));
@@ -1821,7 +1908,7 @@ void drawItemImage(uint8_t itemId, int32_t x, int32_t y, int32_t w, int32_t h) {
             display.drawFastHLine(cx - 52, cy - 18, 78, rgb(128, 132, 120));
             display.fillCircle(cx + 48, cy - 8, 4, rgb(210, 80, 160));
             break;
-        case 8:  // Rail Pistol
+        case ItemImageKind::RailPistol:
             display.fillRoundRect(cx - 65, cy - 32, 108, 32, 5, rgb(78, 72, 70));
             display.fillRect(cx + 35, cy - 26, 42, 8, rgb(160, 150, 128));
             display.fillRect(cx - 8, cy - 42, 50, 9, rgb(52, 56, 58));
@@ -1829,7 +1916,7 @@ void drawItemImage(uint8_t itemId, int32_t x, int32_t y, int32_t w, int32_t h) {
             display.drawFastHLine(cx - 56, cy - 16, 84, rgb(230, 75, 92));
             display.drawLine(cx + 42, cy - 12, cx + 78, cy - 12, rgb(230, 210, 160));
             break;
-        case 9:  // Warm Battery
+        case ItemImageKind::WarmBattery:
             display.fillRoundRect(cx - 42, cy - 58, 84, 112, 8, rgb(72, 58, 38));
             display.fillRect(cx - 20, cy - 70, 40, 14, rgb(110, 92, 56));
             display.drawRoundRect(cx - 42, cy - 58, 84, 112, 8, rgb(238, 176, 72));
@@ -1838,7 +1925,7 @@ void drawItemImage(uint8_t itemId, int32_t x, int32_t y, int32_t w, int32_t h) {
             }
             display.fillCircle(cx, cy + 5, 18, rgb(240, 160, 72));
             break;
-        case 10:  // Mourning Lens
+        case ItemImageKind::MourningLens:
             display.fillCircle(cx, cy - 6, 58, rgb(18, 24, 34));
             display.fillCircle(cx, cy - 6, 44, rgb(38, 54, 82));
             display.fillCircle(cx - 12, cy - 20, 18, rgb(88, 118, 170));
@@ -1847,7 +1934,7 @@ void drawItemImage(uint8_t itemId, int32_t x, int32_t y, int32_t w, int32_t h) {
             display.drawLine(cx + 8, cy - 56, cx - 22, cy + 42, rgb(90, 110, 150));
             display.fillRoundRect(cx - 24, cy + 52, 48, 16, 5, rgb(50, 45, 42));
             break;
-        case 11:  // Null Charm
+        case ItemImageKind::NullCharm:
             display.fillTriangle(cx, cy - 62, cx - 48, cy + 22, cx + 48, cy + 22, rgb(34, 88, 70));
             display.fillTriangle(cx, cy - 42, cx - 28, cy + 12, cx + 28, cy + 12, rgb(12, 20, 18));
             display.drawTriangle(cx, cy - 62, cx - 48, cy + 22, cx + 48, cy + 22, rgb(120, 230, 170));
@@ -1855,7 +1942,7 @@ void drawItemImage(uint8_t itemId, int32_t x, int32_t y, int32_t w, int32_t h) {
             display.fillCircle(cx, cy - 6, 7, rgb(120, 230, 170));
             display.drawCircle(cx, cy - 6, 23, rgb(44, 110, 88));
             break;
-        case 12:  // Iodine Ampoule
+        case ItemImageKind::IodineAmpoule:
             display.fillRoundRect(cx - 18, cy - 64, 36, 120, 14, rgb(72, 78, 68));
             display.fillRoundRect(cx - 13, cy - 30, 26, 76, 10, rgb(150, 96, 38));
             display.drawRoundRect(cx - 18, cy - 64, 36, 120, 14, rgb(210, 225, 190));
@@ -1863,7 +1950,7 @@ void drawItemImage(uint8_t itemId, int32_t x, int32_t y, int32_t w, int32_t h) {
             display.fillTriangle(cx - 10, cy - 66, cx + 10, cy - 66, cx, cy - 84, rgb(160, 170, 150));
             display.drawLine(cx + 9, cy - 52, cx - 8, cy + 42, rgb(230, 190, 125));
             break;
-        case 13:  // Canned Coffee
+        case ItemImageKind::CannedCoffee:
             display.fillRoundRect(cx - 34, cy - 58, 68, 116, 10, rgb(105, 66, 42));
             display.fillRect(cx - 31, cy - 34, 62, 56, rgb(160, 100, 58));
             display.drawRoundRect(cx - 34, cy - 58, 68, 116, 10, rgb(190, 150, 105));
@@ -1872,7 +1959,7 @@ void drawItemImage(uint8_t itemId, int32_t x, int32_t y, int32_t w, int32_t h) {
             display.fillCircle(cx, cy - 6, 15, rgb(56, 36, 28));
             display.drawCircle(cx, cy - 6, 23, rgb(215, 160, 85));
             break;
-        case 14:  // Copper Saint
+        case ItemImageKind::CopperSaint:
             display.fillCircle(cx, cy - 42, 22, rgb(150, 82, 42));
             display.fillRoundRect(cx - 25, cy - 20, 50, 86, 8, rgb(176, 92, 48));
             display.fillTriangle(cx - 25, cy + 12, cx - 66, cy + 56, cx - 20, cy + 48, rgb(120, 64, 38));
@@ -1896,11 +1983,32 @@ bool isEquippedInventorySlot(uint8_t invSlot) {
 
 void drawInventoryScreen();
 
-const char* itemActionLabel(const Item& item, bool equippedNow) {
-    if (item.slot == Slot::Consumable) {
-        return "Use Dose";
+const char* itemUseKindText(ItemUseKind kind) {
+    switch (kind) {
+        case ItemUseKind::Equip:
+            return "equip";
+        case ItemUseKind::Consume:
+            return "consume";
+        case ItemUseKind::None:
+            return "passive";
     }
-    return equippedNow ? "Equipped" : "Equip";
+    return "passive";
+}
+
+const char* itemActionLabel(const Item& item, bool equippedNow) {
+    if (equippedNow) {
+        return "Equipped";
+    }
+    if (item.use.label != nullptr && item.use.label[0] != '\0') {
+        return item.use.label;
+    }
+    if (item.use.kind == ItemUseKind::Consume) {
+        return "Use";
+    }
+    if (item.use.kind == ItemUseKind::Equip) {
+        return "Equip";
+    }
+    return "No Use";
 }
 
 void drawItemDetailScreen() {
@@ -1929,7 +2037,7 @@ void drawItemDetailScreen() {
     const bool equippedNow = isEquippedInventorySlot(static_cast<uint8_t>(selectedInventorySlot));
     const uint16_t bg = rgb(8, 12, 17);
 
-    drawItemImage(itemId, margin, top, imageW, imageH);
+    drawItemImage(item, margin, top, imageW, imageH);
 
     drawPanel(detailX, top, detailW, imageH, item.color);
     display.setFont(&fonts::Font4);
@@ -1951,46 +2059,23 @@ void drawItemDetailScreen() {
 
     display.setTextColor(rgb(125, 230, 205), bg);
     display.drawString("Field Read", detailX + 20, top + 222);
-    display.setTextColor(rgb(170, 188, 184), bg);
-    switch (item.slot) {
-        case Slot::Suit:
-            drawWrappedText("Worn against weather, bad air, panic sweat, and whatever the rain is learning to become.",
-                            detailX + 20, top + 252, detailW - 40, 3, rgb(170, 188, 184), bg);
-            break;
-        case Slot::Detector:
-            drawWrappedText("Useful when the world lies visually. Fragile when the world starts lying back.",
-                            detailX + 20, top + 252, detailW - 40, 3, rgb(170, 188, 184), bg);
-            break;
-        case Slot::Tool:
-            drawWrappedText("Turns locked places into negotiations. Also turns quiet places into loud ones.",
-                            detailX + 20, top + 252, detailW - 40, 3, rgb(170, 188, 184), bg);
-            break;
-        case Slot::Weapon:
-            drawWrappedText("A problem solver with a receipt. Every use writes your name somewhere.",
-                            detailX + 20, top + 252, detailW - 40, 3, rgb(170, 188, 184), bg);
-            break;
-        case Slot::Artifact:
-            drawWrappedText("Not equipment exactly. More like a small rule from somewhere else, carried in your pocket.",
-                            detailX + 20, top + 252, detailW - 40, 3, rgb(170, 188, 184), bg);
-            break;
-        case Slot::Consumable:
-            drawWrappedText("Temporary mercy. The Zone keeps the permanent kind for itself.",
-                            detailX + 20, top + 252, detailW - 40, 3, rgb(170, 188, 184), bg);
-            break;
-    }
+    drawWrappedText(item.fieldRead, detailX + 20, top + 252, detailW - 40, 3, rgb(170, 188, 184), bg);
 
     display.drawFastHLine(detailX + 18, top + imageH - 84, detailW - 36, rgb(55, 70, 70));
     display.setTextColor(rgb(210, 220, 215), bg);
     display.drawString("Effects", detailX + 20, top + imageH - 62);
     drawStatDelta(item, detailX + 96, top + imageH - 62, bg);
     display.setTextColor(rgb(145, 160, 158), bg);
-    display.drawString("G grit  T tech  S scan  H ghost  F filter  X strain", detailX + 20, top + imageH - 34);
+    display.setCursor(detailX + 20, top + imageH - 36);
+    display.printf("use %s  body %+d  dose %+d  scrap %+d", itemUseKindText(item.use.kind), item.use.healthDelta,
+                   item.use.exposureDelta, item.use.scrapDelta);
 
     const int32_t buttonY = height - bottomH;
     addButton("Pack", margin, buttonY + 8, 160, 52, UiAction::Inventory, 0, rgb(90, 210, 220));
     addButton("Field", margin + 174, buttonY + 8, 150, 52, UiAction::BackToField, 0, rgb(120, 220, 120));
+    const bool actionEnabled = item.use.kind == ItemUseKind::Consume || (item.use.kind == ItemUseKind::Equip && !equippedNow);
     addButton(itemActionLabel(item, equippedNow), width - margin - 230, buttonY + 8, 230, 52, UiAction::EquipOrUse,
-              selectedInventorySlot, item.color, item.slot == Slot::Consumable || !equippedNow);
+              selectedInventorySlot, item.color, actionEnabled);
 
     for (uint8_t i = 0; i < buttonCount; ++i) {
         drawButton(buttons[i]);
@@ -2077,21 +2162,9 @@ void drawCurrentScreen() {
 }
 
 void initializeColors() {
-    itemCatalog[0].color = rgb(110, 150, 150);
-    itemCatalog[1].color = rgb(90, 180, 120);
-    itemCatalog[2].color = rgb(190, 90, 210);
-    itemCatalog[3].color = rgb(80, 200, 220);
-    itemCatalog[4].color = rgb(90, 230, 190);
-    itemCatalog[5].color = rgb(220, 180, 70);
-    itemCatalog[6].color = rgb(230, 120, 70);
-    itemCatalog[7].color = rgb(210, 80, 160);
-    itemCatalog[8].color = rgb(230, 70, 90);
-    itemCatalog[9].color = rgb(240, 190, 80);
-    itemCatalog[10].color = rgb(120, 150, 250);
-    itemCatalog[11].color = rgb(120, 230, 170);
-    itemCatalog[12].color = rgb(170, 230, 80);
-    itemCatalog[13].color = rgb(180, 120, 80);
-    itemCatalog[14].color = rgb(210, 130, 60);
+    for (uint8_t i = 0; i < kItemCount; ++i) {
+        itemCatalog[i].color = rgb(itemCatalog[i].tintR, itemCatalog[i].tintG, itemCatalog[i].tintB);
+    }
 
     sites[0].color = rgb(80, 180, 160);
     sites[1].color = rgb(220, 70, 180);
