@@ -1102,6 +1102,47 @@ const char* actionBlockedText(UiAction action) {
     return "";
 }
 
+void buildAreaPressureSynopsis(char* buffer, size_t bufferSize) {
+    buffer[0] = '\0';
+    if (currentSite == 0) {
+        snprintf(buffer, bufferSize, "Clinic light is stable. Risk comes from bills, wounds, and what you carry back.");
+        return;
+    }
+
+    const Site& site = sites[currentSite];
+    if (site.risk <= 3) {
+        appendAbilityNote(buffer, bufferSize, "The ground is ugly but readable.");
+    } else if (site.risk <= 5) {
+        appendAbilityNote(buffer, bufferSize, "The place is hostile even before it notices you.");
+    } else {
+        appendAbilityNote(buffer, bufferSize, "The outer rules are thin here; every action has teeth.");
+    }
+
+    if (siteAttention[currentSite] >= 4) {
+        appendAbilityNote(buffer, bufferSize, "People and systems are actively watching for your shape.");
+    } else if (siteAttention[currentSite] > 0) {
+        appendAbilityNote(buffer, bufferSize, "Recent noise has made the site alert.");
+    } else {
+        appendAbilityNote(buffer, bufferSize, "Nothing has focused on you yet.");
+    }
+
+    if (siteIntel[currentSite] >= 2) {
+        appendAbilityNote(buffer, bufferSize, "Your notes cut through the worst guesswork.");
+    } else if (siteIntel[currentSite] == 1) {
+        appendAbilityNote(buffer, bufferSize, "You have one useful read on the place.");
+    } else {
+        appendAbilityNote(buffer, bufferSize, "You are mostly reading rain and instinct.");
+    }
+
+    if (timeTick >= 6) {
+        appendAbilityNote(buffer, bufferSize, "Dusk pressure is making every route meaner.");
+    }
+
+    if (siteLead[currentSite] != LeadKind::None) {
+        appendAbilityNote(buffer, bufferSize, leadWhisper(siteLead[currentSite]));
+    }
+}
+
 // Selects the stat total used for a field action roll.
 int16_t actionSkill(UiAction action, const Stats& stats) {
     const LeadKind lead = siteLead[currentSite];
@@ -1140,11 +1181,9 @@ int16_t actionTarget(UiAction action) {
         target += 1;
     }
     if (action == UiAction::FollowLead) {
-        target += 1;
-        if (siteLead[currentSite] == LeadKind::Anomaly || siteLead[currentSite] == LeadKind::Door) {
+        if (siteLead[currentSite] == LeadKind::Anomaly) {
             target += 1;
-        }
-        if (siteLead[currentSite] == LeadKind::Trail) {
+        } else if (siteLead[currentSite] == LeadKind::Trail) {
             target -= 1;
         }
     }
@@ -1831,10 +1870,13 @@ void drawActionForecast(int32_t x, int32_t y, int32_t w, int32_t h) {
                          sites[currentSite].maxCache, siteIntel[currentSite], kMaxSiteIntel,
                          siteAttention[currentSite], kMaxSiteAttention);
     drawFormattedTextFit(x + 16, y + 66, w - 32, rgb(150, 168, 170), bg, "lead: %s", leadName(siteLead[currentSite]));
+    char synopsis[260];
+    buildAreaPressureSynopsis(synopsis, sizeof(synopsis));
+    drawWrappedText(synopsis, x + 16, y + 84, w - 32, 2, rgb(178, 198, 194), bg);
 
     for (uint8_t i = 0; i < 3; ++i) {
         const UiAction action = actions[i];
-        const int32_t rowY = y + 94 + i * 64;
+        const int32_t rowY = y + 134 + i * 58;
         const bool enabled = fieldActionAvailable(action);
         const uint16_t rowBg = enabled ? rgb(12, 18, 24) : rgb(16, 16, 18);
         const uint16_t border = enabled ? rgb(90, 210, 220) : rgb(58, 58, 62);
@@ -1842,16 +1884,16 @@ void drawActionForecast(int32_t x, int32_t y, int32_t w, int32_t h) {
         const int16_t target = actionTarget(action);
         const uint8_t chance = successChance(skill, target);
 
-        display.fillRoundRect(x + 14, rowY, w - 28, 58, 6, rowBg);
-        display.drawRoundRect(x + 14, rowY, w - 28, 58, 6, border);
+        display.fillRoundRect(x + 14, rowY, w - 28, 52, 6, rowBg);
+        display.drawRoundRect(x + 14, rowY, w - 28, 52, 6, border);
         drawTextFit(actionLabel(action), x + 26, rowY + 8, 84, enabled ? TFT_WHITE : rgb(110, 115, 120), rowBg);
         drawFormattedTextFit(x + 118, rowY + 8, w - 144, enabled ? rgb(180, 210, 205) : rgb(95, 100, 102), rowBg,
                              "%s %d/%d", actionCheckText(action), skill, target);
-        drawFormattedTextFit(x + 26, rowY + 30, 132, enabled ? rgb(180, 210, 205) : rgb(95, 100, 102), rowBg,
+        drawFormattedTextFit(x + 26, rowY + 28, 132, enabled ? rgb(180, 210, 205) : rgb(95, 100, 102), rowBg,
                              "%u%%  %uh  dose +%d", chance,
                              static_cast<unsigned>(actionTimeCost(action) * kTickHours),
                              actionExposureCost(action, stats));
-        drawTextFit(enabled ? actionPayoffText(action) : actionBlockedText(action), x + 168, rowY + 30, w - 196,
+        drawTextFit(enabled ? actionPayoffText(action) : actionBlockedText(action), x + 168, rowY + 28, w - 196,
                     enabled ? rgb(180, 210, 205) : rgb(95, 100, 102), rowBg);
     }
 }
