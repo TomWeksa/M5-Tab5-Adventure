@@ -72,18 +72,23 @@ const uint8_t kItemCount = sizeof(itemCatalog) / sizeof(itemCatalog[0]);
 Site sites[] = {
     {"Underpass Clinic", "safe berth",
      "A medic shack below the ring road, where runoff clicks through drain grates and warm bulbs turn the damp concrete amber. It smells of bad coffee, antiseptic, diesel coats, and fear kept politely quiet; orderlies, fence-runners, and debt collectors all lower their voices near the triage curtain.",
+     "From the clinic steps you watch the waiting line shift whenever the road lights flicker; people hide tremors in their coat pockets, and the orderlies read every cough like weather.",
      1, 0, 0},
     {"Neon Spillway", "wet market",
      "Old ad towers bleed color through toxic rain and illegal stalls crowd the flood channel. Fry oil, wet plastic, ozone, and incense hang under the tarps while smugglers haggle with scavengers, courier kids, and checkpoint guards pretending not to shop.",
+     "You count patrol reflections in the spillway water, note which vendors stop talking first, and spot a courier marking safe stalls with chalk dust under the table lips.",
      3, 4, 0},
     {"Sunken Mall", "retail tomb",
      "Escalators vanish into black water and the public address system still whispers discounts to empty atriums. The air tastes of algae, copper wiring, perfume samples, and drowned plaster; families in patched waders sift storefronts while something below keeps the music playing.",
+     "You hold still above the atrium and listen: water slaps tile, a child laughs once behind a shutter, and the old shop speakers skip whenever something moves below.",
      4, 5, 0},
     {"Relay Grave", "antenna field",
      "Fallen towers tick in the wind across a hill of cable bones and shattered insulators. Messages still arrive for the dead, buzzing from rusted cabinets that smell of hot dust and mouse nests, and the antenna pilgrims trade batteries for frequencies they swear contain names.",
+     "You watch the tower shadows crawl the wrong direction and mark which cabinets click in answer; an antenna pilgrim leaves offerings where the static briefly sounds human.",
      5, 4, 0},
     {"Black Reed Verge", "outer exclusion",
      "A reed sea has grown through the asphalt until the road looks woven from knives. Sweet chemical rot rises from the ditches, insects rasp inside the fog, and quiet homesteads on scaffold legs watch the stalks for the moment every shadow leans the wrong way.",
+     "You crouch in the ditch grass and let the reedline teach you its rhythm; hidden homes go dark in sequence, then one patch of stalks keeps moving after the wind stops.",
      6, 3, 0},
 };
 

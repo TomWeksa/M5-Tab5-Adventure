@@ -21,7 +21,7 @@ constexpr uint8_t kMaxTimeTicks = 8;
 constexpr uint8_t kDayStartHour = 7;
 constexpr uint8_t kTickHours = 2;
 constexpr uint8_t kMaxSiteIntel = 3;
-constexpr uint8_t kMaxSiteHeat = 6;
+constexpr uint8_t kMaxSiteAttention = 6;
 constexpr int16_t kDailyUpkeep = 4;
 
 // Runtime state is intentionally plain globals because the Arduino loop is a
@@ -36,7 +36,7 @@ uint8_t selectedMapSite = 1;
 int16_t selectedInventorySlot = 0;
 uint8_t inventoryPage = 0;
 uint8_t timeTick = 0;
-uint8_t siteHeat[kSiteCapacity];
+uint8_t siteAttention[kSiteCapacity];
 uint8_t siteCache[kSiteCapacity];
 uint8_t siteIntel[kSiteCapacity];
 LeadKind siteLead[kSiteCapacity];
@@ -46,7 +46,7 @@ Button buttons[kMaxButtons];
 uint8_t buttonCount = 0;
 bool screenDirty = true;
 bool touchWasPressed = false;
-char statusLine[192] = "The rain tastes metallic. Your kit is the only thing between you and the quiet.";
+char statusLine[320] = "The rain tastes metallic. Your kit is the only thing between you and the quiet.";
 
 // Converts 8-bit RGB values to the display's 16-bit color format.
 uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
@@ -147,14 +147,14 @@ uint8_t timeRemainingTicks() {
     return timeTick < kMaxTimeTicks ? static_cast<uint8_t>(kMaxTimeTicks - timeTick) : 0;
 }
 
-// Combines base site risk, heat, intel, and dusk pressure into live danger.
+// Combines base site risk, attention, intel, and dusk pressure into live danger.
 int16_t effectiveRiskForSite(uint8_t siteIndex) {
     if (siteIndex == 0 || siteIndex >= kSiteCount) {
         return sites[0].risk;
     }
 
     const int16_t duskPressure = timeTick >= 6 ? 1 : 0;
-    return clampInt(sites[siteIndex].risk + siteHeat[siteIndex] / 2 - siteIntel[siteIndex] + duskPressure, 1, 9);
+    return clampInt(sites[siteIndex].risk + siteAttention[siteIndex] / 2 - siteIntel[siteIndex] + duskPressure, 1, 9);
 }
 
 // Gives each field action its time cost in ticks.
@@ -368,7 +368,7 @@ int16_t actionSkill(UiAction action, const Stats& stats) {
     }
 }
 
-// Builds the difficulty target from site risk, heat, and action type.
+// Builds the difficulty target from site risk, attention, and action type.
 int16_t actionTarget(UiAction action) {
     int16_t target = 4 + effectiveRiskForSite(currentSite);
     if (action == UiAction::Explore) {
@@ -383,7 +383,7 @@ int16_t actionTarget(UiAction action) {
             target -= 1;
         }
     }
-    if (action == UiAction::Explore && siteHeat[currentSite] > 0) {
+    if (action == UiAction::Explore && siteAttention[currentSite] > 0) {
         target += 1;
     }
     return clampInt(target, 3, 12);
@@ -470,7 +470,7 @@ int16_t routeExposureCost(uint8_t targetSite, const Stats& stats) {
         return currentSite == 0 ? 0 : 1;
     }
 
-    const int16_t routeLoad = travelTicksToSite(targetSite) + siteHeat[targetSite] / 2;
+    const int16_t routeLoad = travelTicksToSite(targetSite) + siteAttention[targetSite] / 2;
     return clampInt((sites[targetSite].risk + routeLoad + stats.strain - stats.filter) / 4, 0, 4);
 }
 
@@ -760,7 +760,7 @@ void drawPanel(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t border) {
     display.drawRoundRect(x, y, w, h, 8, border);
 }
 
-// Draws the persistent top bar with time, scrap, risk, cache, and heat.
+// Draws the persistent top bar with time, scrap, risk, cache, and attention.
 void drawHeader() {
     auto& display = M5.Display;
     const int32_t width = display.width();
@@ -788,8 +788,8 @@ void drawHeader() {
                          static_cast<unsigned>(currentHour()), scrap,
                          static_cast<unsigned>(timeRemainingTicks() * kTickHours));
     drawFormattedTextFit(headerInfoX, 38, headerInfoW, rgb(180, 190, 190), bg,
-                         "bill %d at dawn  risk %d  cache %u  heat %u", kDailyUpkeep, effectiveRiskForSite(currentSite),
-                         siteCache[currentSite], siteHeat[currentSite]);
+                         "bill %d at dawn  risk %d  cache %u  attention %u", kDailyUpkeep,
+                         effectiveRiskForSite(currentSite), siteCache[currentSite], siteAttention[currentSite]);
 }
 
 // Draws the runner condition meters and contextualized stats.
@@ -811,7 +811,7 @@ void drawStatsPanel(int32_t x, int32_t y, int32_t w, int32_t h) {
     drawFormattedTextFit(x + 18, statY, w - 36, rgb(220, 230, 225), bg, "GRIT breach  %d", stats.grit);
     drawFormattedTextFit(x + 18, statY + 22, w - 36, rgb(220, 230, 225), bg, "TECH bypass  %d", stats.tech);
     drawFormattedTextFit(x + 18, statY + 44, w - 36, rgb(220, 230, 225), bg, "SCAN anomaly %d", stats.scan);
-    drawFormattedTextFit(x + 18, statY + 66, w - 36, rgb(220, 230, 225), bg, "GHOST heat   %d", stats.ghost);
+    drawFormattedTextFit(x + 18, statY + 66, w - 36, rgb(220, 230, 225), bg, "GHOST notice %d", stats.ghost);
     drawFormattedTextFit(x + 18, statY + 88, w - 36, rgb(220, 230, 225), bg, "FILTER dose  %d", stats.filter);
     drawFormattedTextFit(x + 18, statY + 110, w - 36, rgb(220, 230, 225), bg, "STRAIN weird %d", stats.strain);
 }
@@ -873,8 +873,9 @@ void drawActionForecast(int32_t x, int32_t y, int32_t w, int32_t h) {
 
     display.setFont(&fonts::Font2);
     drawFormattedTextFit(x + 16, y + 48, w - 32, rgb(150, 168, 170), bg,
-                         "cache %u/%u  intel %u/%u  heat %u/%u", siteCache[currentSite], sites[currentSite].maxCache,
-                         siteIntel[currentSite], kMaxSiteIntel, siteHeat[currentSite], kMaxSiteHeat);
+                         "cache %u/%u  intel %u/%u  attention %u/%u", siteCache[currentSite],
+                         sites[currentSite].maxCache, siteIntel[currentSite], kMaxSiteIntel,
+                         siteAttention[currentSite], kMaxSiteAttention);
     drawFormattedTextFit(x + 16, y + 66, w - 32, rgb(150, 168, 170), bg, "lead: %s", leadName(siteLead[currentSite]));
 
     for (uint8_t i = 0; i < 3; ++i) {
@@ -931,7 +932,7 @@ uint8_t randomLootForAction(UiAction action) {
 }
 
 // Calculates how much attention a field action adds to the current site.
-uint8_t actionHeatGain(UiAction action, bool success) {
+uint8_t actionAttentionGain(UiAction action, bool success) {
     switch (action) {
         case UiAction::Observe:
             return success ? 0 : 1;
@@ -952,10 +953,10 @@ uint8_t actionHeatGain(UiAction action, bool success) {
     }
 }
 
-// Lowers heat, fades intel, clears leads, and slowly restocks sites overnight.
+// Lowers attention, fades intel, clears leads, and slowly restocks sites overnight.
 void coolSitesForNewDay() {
     for (uint8_t i = 1; i < kSiteCount; ++i) {
-        siteHeat[i] = siteHeat[i] > 2 ? static_cast<uint8_t>(siteHeat[i] - 2) : 0;
+        siteAttention[i] = siteAttention[i] > 2 ? static_cast<uint8_t>(siteAttention[i] - 2) : 0;
         siteIntel[i] = siteIntel[i] > 0 ? static_cast<uint8_t>(siteIntel[i] - 1) : 0;
         siteLead[i] = LeadKind::None;
         if (siteCache[i] < sites[i].maxCache) {
@@ -983,7 +984,7 @@ void startNewDay(const char* lead) {
         snprintf(bill, sizeof(bill), "Short on rent. Debt collectors take it out of your body.");
     }
 
-    char message[192];
+    char message[320];
     snprintf(message, sizeof(message), "%s %s", lead, bill);
     setStatus(message);
 }
@@ -1042,12 +1043,12 @@ void resolveFieldAction(UiAction action) {
     const int16_t total = skill + random(1, 7);
     const int16_t ambientDose = actionExposureCost(action, stats);
     const bool success = total >= target;
-    const uint8_t heatGain = actionHeatGain(action, success);
+    const uint8_t attentionGain = actionAttentionGain(action, success);
 
     exposure = clampInt(exposure + ambientDose, 0, kMaxExposure);
-    siteHeat[currentSite] = clampInt(siteHeat[currentSite] + heatGain, 0, kMaxSiteHeat);
+    siteAttention[currentSite] = clampInt(siteAttention[currentSite] + attentionGain, 0, kMaxSiteAttention);
 
-    char message[192];
+    char message[320];
     if (action == UiAction::Observe) {
         if (success) {
             const LeadKind foundLead = randomLeadForSite(currentSite);
@@ -1056,13 +1057,13 @@ void resolveFieldAction(UiAction action) {
             siteIntel[currentSite] = clampInt(siteIntel[currentSite] + 1, 0, kMaxSiteIntel);
             scrap += gain;
             snprintf(message, sizeof(message),
-                     "You observe %s instead of touching it. %s %d/%d. Lead: %s. %s",
-                     site.name, actionCheckText(action), total, target, leadName(foundLead), leadWhisper(foundLead));
+                     "%s %s %d/%d. Lead: %s. %s",
+                     site.observeText, actionCheckText(action), total, target, leadName(foundLead), leadWhisper(foundLead));
         } else {
             exposure = clampInt(exposure + 1, 0, kMaxExposure);
             snprintf(message, sizeof(message),
-                     "You wait too long in bad cover. %s %d/%d. Heat +%u, exposure creeps up.",
-                     actionCheckText(action), total, target, heatGain);
+                     "You wait too long in bad cover. %s %d/%d. Attention +%u, exposure creeps up.",
+                     actionCheckText(action), total, target, attentionGain);
         }
     } else if (action == UiAction::Explore) {
         if (success) {
@@ -1099,8 +1100,8 @@ void resolveFieldAction(UiAction action) {
             health = clampInt(health - wound, 0, kMaxHealth);
             exposure = clampInt(exposure + dose, 0, kMaxExposure);
             snprintf(message, sizeof(message),
-                     "%s punishes blind movement. %s %d/%d. Heat +%u, -%d body, +%d exposure.",
-                     site.name, actionCheckText(action), total, target, heatGain, wound, dose);
+                     "%s punishes blind movement. %s %d/%d. Attention +%u, -%d body, +%d exposure.",
+                     site.name, actionCheckText(action), total, target, attentionGain, wound, dose);
         }
     } else if (action == UiAction::FollowLead) {
         if (success) {
@@ -1110,16 +1111,18 @@ void resolveFieldAction(UiAction action) {
             if (lead == LeadKind::Contact) {
                 siteIntel[currentSite] = clampInt(siteIntel[currentSite] + 1, 0, kMaxSiteIntel);
                 scrap += gain;
-                siteHeat[currentSite] = siteHeat[currentSite] > 0 ? static_cast<uint8_t>(siteHeat[currentSite] - 1) : 0;
+                siteAttention[currentSite] =
+                    siteAttention[currentSite] > 0 ? static_cast<uint8_t>(siteAttention[currentSite] - 1) : 0;
                 snprintf(message, sizeof(message),
-                         "You approach the quiet contact correctly. %s %d/%d. +%d scrap, intel +1, heat softens.",
+                         "You approach the quiet contact correctly. %s %d/%d. +%d scrap, intel +1, attention softens.",
                          actionCheckText(action), total, target, gain);
             } else if (lead == LeadKind::Trail) {
                 siteIntel[currentSite] = clampInt(siteIntel[currentSite] + 1, 0, kMaxSiteIntel);
-                siteHeat[currentSite] = siteHeat[currentSite] > 2 ? static_cast<uint8_t>(siteHeat[currentSite] - 3) : 0;
+                siteAttention[currentSite] =
+                    siteAttention[currentSite] > 2 ? static_cast<uint8_t>(siteAttention[currentSite] - 3) : 0;
                 exposure = clampInt(exposure - 1, 0, kMaxExposure);
                 snprintf(message, sizeof(message),
-                         "You trace the cleaner footpath. %s %d/%d. Heat drops, exposure drops, intel +1.",
+                         "You trace the cleaner footpath. %s %d/%d. Attention drops, exposure drops, intel +1.",
                          actionCheckText(action), total, target);
             } else {
                 if (siteCache[currentSite] > 0) {
@@ -1154,8 +1157,8 @@ void resolveFieldAction(UiAction action) {
             exposure = clampInt(exposure + dose, 0, kMaxExposure);
             siteLead[currentSite] = LeadKind::None;
             snprintf(message, sizeof(message),
-                     "The %s turns bad. %s %d/%d. Lead lost, heat +%u, -%d body, +%d exposure.",
-                     leadName(lead), actionCheckText(action), total, target, heatGain, wound, dose);
+                     "The %s turns bad. %s %d/%d. Lead lost, attention +%u, -%d body, +%d exposure.",
+                     leadName(lead), actionCheckText(action), total, target, attentionGain, wound, dose);
         }
     } else {
         return;
@@ -1314,8 +1317,8 @@ void drawFieldScreen() {
                     panelBg);
     display.setFont(&fonts::Font2);
     drawFormattedTextFit(centerX + 20, top + 156, centerW - 40, rgb(180, 210, 205), panelBg,
-                         "risk %d  cache %u  intel %u  heat %u", effectiveRiskForSite(currentSite),
-                         siteCache[currentSite], siteIntel[currentSite], siteHeat[currentSite]);
+                         "risk %d  cache %u  intel %u  attention %u", effectiveRiskForSite(currentSite),
+                         siteCache[currentSite], siteIntel[currentSite], siteAttention[currentSite]);
     drawFormattedTextFit(centerX + 20, top + 176, centerW - 40, rgb(180, 210, 205), panelBg, "lead: %s",
                          leadName(siteLead[currentSite]));
 
@@ -1485,7 +1488,7 @@ void drawMapBackground(int32_t x, int32_t y, int32_t w, int32_t h) {
         const int32_t px = mapPinX(mapPins[i], x, w);
         const int32_t py = mapPinY(mapPins[i], y, h);
         const uint16_t stain = satelliteSiteStain(mapPins[i].site);
-        display.fillCircle(px, py, 38 + siteHeat[mapPins[i].site] * 5, stain);
+        display.fillCircle(px, py, 38 + siteAttention[mapPins[i].site] * 5, stain);
         display.fillCircle(px + 19, py - 12, 22, stain);
         display.fillCircle(px - 18, py + 15, 18, stain);
     }
@@ -1506,7 +1509,7 @@ void drawMapBackground(int32_t x, int32_t y, int32_t w, int32_t h) {
     display.setFont(&fonts::Font2);
     drawTextFit("ORBITAL PASS DEGRADED / GROUND TRUTH PATCHED BY WALKED ROUTES", x + 24, y + h - 30, w - 48,
                 rgb(82, 112, 96), bg);
-    drawTextFit("mud, roof, poison water, heat bloom", x + 24, y + 16, w - 48, rgb(82, 112, 96), bg);
+    drawTextFit("mud, roof, poison water, attention bloom", x + 24, y + 16, w - 48, rgb(82, 112, 96), bg);
     display.clearClipRect();
 }
 
@@ -1628,7 +1631,7 @@ void drawDestinationIcon(uint8_t siteIndex, int32_t x, int32_t y, bool selected)
     }
 }
 
-// Draws all map pins, overlays heat/intel rings, and registers hit areas.
+// Draws all map pins, overlays attention/intel rings, and registers hit areas.
 void drawMapPins(int32_t x, int32_t y, int32_t w, int32_t h) {
     auto& display = M5.Display;
     const uint16_t bg = rgb(4, 8, 11);
@@ -1641,8 +1644,8 @@ void drawMapPins(int32_t x, int32_t y, int32_t w, int32_t h) {
         const bool here = pin.site == currentSite;
         const bool selected = pin.site == selectedMapSite;
 
-        if (siteHeat[pin.site] > 0) {
-            display.drawCircle(px, py, 29 + siteHeat[pin.site] * 2, rgb(120, 45, 58));
+        if (siteAttention[pin.site] > 0) {
+            display.drawCircle(px, py, 29 + siteAttention[pin.site] * 2, rgb(120, 45, 58));
         }
         if (siteIntel[pin.site] > 0) {
             display.drawCircle(px, py, 28, rgb(80, 180, 170));
@@ -1686,8 +1689,8 @@ void drawMapDetailPanel(int32_t x, int32_t y, int32_t w, int32_t h) {
     drawTextFit(site.district, x + 18, y + 52, w - 36, rgb(160, 180, 178), bg);
 
     drawFormattedTextFit(x + 18, y + 86, w - 36, rgb(125, 230, 205), bg,
-                         "risk %d  cache %u/%u  intel %u  heat %u", effectiveRiskForSite(siteIndex),
-                         siteCache[siteIndex], site.maxCache, siteIntel[siteIndex], siteHeat[siteIndex]);
+                         "risk %d  cache %u/%u  intel %u  attention %u", effectiveRiskForSite(siteIndex),
+                         siteCache[siteIndex], site.maxCache, siteIntel[siteIndex], siteAttention[siteIndex]);
 
     drawWrappedText(pin.whisper, x + 18, y + 122, w - 36, 3, rgb(215, 222, 212), bg);
     drawWrappedText(site.description, x + 18, y + 198, w - 36, 4, rgb(165, 180, 176), bg);
@@ -2135,7 +2138,7 @@ void initializeGame() {
         equipped[i] = -1;
     }
     for (uint8_t i = 0; i < kSiteCount; ++i) {
-        siteHeat[i] = 0;
+        siteAttention[i] = 0;
         siteIntel[i] = 0;
         siteCache[i] = sites[i].maxCache;
         siteLead[i] = LeadKind::None;

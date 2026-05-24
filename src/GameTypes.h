@@ -112,6 +112,8 @@ struct Site {
     const char* name;
     const char* district;
     const char* description;
+    // Specific passage shown when the player takes time to observe the site.
+    const char* observeText;
     uint8_t risk;
     uint8_t maxCache;
     uint16_t color;
