@@ -3966,7 +3966,7 @@ void drawItemDetailScreen() {
         drawTextFit("EQUIPPED", detailX + detailW - 116, top + 54, 98, rgb(120, 240, 190), bg);
     }
 
-    const int32_t effectsH = 92;
+    const int32_t effectsH = 156;
     const int32_t previewH = 100;
     const int32_t effectsTop = top + imageH - effectsH;
     const int32_t previewTop = effectsTop - previewH - 10;
@@ -4020,10 +4020,12 @@ void drawItemDetailScreen() {
     }
 
     display.drawFastHLine(detailX + 18, effectsTop, detailW - 36, rgb(55, 70, 70));
-    drawTextFit("Effects", detailX + 20, effectsTop + 16, detailW - 40, rgb(210, 220, 215), bg);
-    drawFullItemStats(item, detailX + 20, effectsTop + 40, detailW - 40, bg);
-    drawFormattedTextFit(detailX + 20, effectsTop + 70, detailW - 40, rgb(145, 160, 158), bg,
-                         "use %s  body %+d  dose %+d  attention %+d", itemUseKindText(item.use.kind),
+    drawTextFit("Effects", detailX + 20, effectsTop + 14, detailW - 40, rgb(210, 220, 215), bg);
+    drawTextFit("Passive stat effect", detailX + 20, effectsTop + 38, detailW - 40, rgb(150, 168, 170), bg);
+    drawFullItemStats(item, detailX + 20, effectsTop + 60, detailW - 40, bg);
+    drawTextFit("Use effect", detailX + 20, effectsTop + 108, detailW - 40, rgb(150, 168, 170), bg);
+    drawFormattedTextFit(detailX + 20, effectsTop + 130, detailW - 40, rgb(185, 205, 200), bg,
+                         "%s  Body %+d  Dose %+d  Attention %+d", itemUseKindText(item.use.kind),
                          item.use.healthDelta, item.use.exposureDelta, item.use.attentionDelta);
 
     const int32_t buttonY = height - bottomH;
