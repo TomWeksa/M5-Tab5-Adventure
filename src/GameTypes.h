@@ -8,6 +8,8 @@ enum class Screen : uint8_t {
     Inventory,
     ItemDetail,
     Map,
+    Reward,
+    Trade,
 };
 
 // Slots describe broad item categories and also drive equipment placement.
@@ -70,6 +72,14 @@ enum class UiAction : uint8_t {
     EquipOrUse,
     InventoryPrev,
     InventoryNext,
+    OpenTrade,
+    ToggleTradeOffer,
+    ToggleTradeWant,
+    TradePrev,
+    TradeNext,
+    AcceptTrade,
+    ClearTrade,
+    ContinueReward,
     Travel,
     Rest,
 };
@@ -79,7 +89,7 @@ struct ItemUseProfile {
     ItemUseKind kind;
     int8_t healthDelta;
     int8_t exposureDelta;
-    int8_t scrapDelta;
+    int8_t attentionDelta;
     bool consumedOnUse;
     const char* label;
     const char* resultText;

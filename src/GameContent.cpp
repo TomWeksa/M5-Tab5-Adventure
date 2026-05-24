@@ -63,6 +63,21 @@ Item itemCatalog[] = {
      {ItemUseKind::Equip, 0, 0, 0, false, "Equip", "The little copper figure hums like a service tunnel full of prayers."},
      "A little idol that hums in broken service tunnels.",
      "A heavy charm of courage or foolishness. In the exclusion, those are often the same material."},
+    {"Battery Cell", "trade", Slot::Consumable, ItemImageKind::WarmBattery, 0, 0, 0, 0, 0, 0, 3, 232, 190, 70, 0,
+     {ItemUseKind::Consume, 0, 0, -1, true, "Burn",
+      "You spend the cell on a dirty signal jammer. Nearby attention drops by one step."},
+     "A taped industrial cell with enough charge to buy a meal, power a bypass, or silence a cheap alarm.",
+     "Reliable barter because everyone needs power. Useful because power can still make things stop looking at you."},
+    {"Clean Water", "trade", Slot::Consumable, ItemImageKind::CannedCoffee, 0, 0, 0, 0, 0, 0, 4, 95, 180, 220, 0,
+     {ItemUseKind::Consume, 1, -1, 0, true, "Drink",
+      "The water tastes faintly of charcoal and plastic. Body steadies, dose quiets."},
+     "A sealed pouch of filtered water, stamped with a clinic checksum and a warning not to trust the seal.",
+     "Common money in dry districts. Also exactly what your body keeps asking for."},
+    {"Med Pack", "trade", Slot::Consumable, ItemImageKind::IodineAmpoule, 0, 0, 0, 0, 0, 0, 7, 216, 88, 96, 0,
+     {ItemUseKind::Consume, 3, 0, 0, true, "Patch",
+      "You spend the pack on clot foam and bitter tabs. Body recovers before pride does."},
+     "Bandage rolls, clot foam, and two anonymous tablets in a waxed paper sleeve.",
+     "High-value barter because pain is universal. Keeping it may matter more than spending it."},
 };
 
 const uint8_t kItemCount = sizeof(itemCatalog) / sizeof(itemCatalog[0]);

@@ -22,19 +22,25 @@ constexpr uint8_t kDayStartHour = 7;
 constexpr uint8_t kTickHours = 2;
 constexpr uint8_t kMaxSiteIntel = 3;
 constexpr uint8_t kMaxSiteAttention = 6;
-constexpr int16_t kDailyUpkeep = 4;
+constexpr int16_t kDailyUpkeepValue = 4;
+constexpr uint8_t kMaxRewardItems = 12;
+constexpr uint8_t kTradeStockCount = 6;
+constexpr uint8_t kTradeRowsPerPage = 6;
+constexpr uint8_t kBatteryCellItem = 15;
+constexpr uint8_t kCleanWaterItem = 16;
+constexpr uint8_t kMedPackItem = 17;
 
 // Runtime state is intentionally plain globals because the Arduino loop is a
 // single-scene program and redraws from this state directly.
 Screen currentScreen = Screen::Field;
 int16_t health = 9;
 int16_t exposure = 0;
-int16_t scrap = 8;
 uint16_t day = 1;
 uint8_t currentSite = 0;
 uint8_t selectedMapSite = 1;
 int16_t selectedInventorySlot = 0;
 uint8_t inventoryPage = 0;
+uint8_t tradePage = 0;
 uint8_t timeTick = 0;
 uint8_t siteAttention[kSiteCapacity];
 uint8_t siteCache[kSiteCapacity];
@@ -42,11 +48,19 @@ uint8_t siteIntel[kSiteCapacity];
 LeadKind siteLead[kSiteCapacity];
 int16_t inventory[kInventoryCapacity];
 int16_t equipped[kEquipSlotCount];
+bool tradeOfferSelected[kInventoryCapacity];
+bool tradeWantSelected[kTradeStockCount];
+uint8_t rewardItems[kMaxRewardItems];
+uint8_t rewardCount = 0;
 Button buttons[kMaxButtons];
 uint8_t buttonCount = 0;
 bool screenDirty = true;
 bool touchWasPressed = false;
 char statusLine[320] = "The rain tastes metallic. Your kit is the only thing between you and the quiet.";
+char rewardTitle[80] = "";
+char rewardSummary[320] = "";
+
+const uint8_t tradeStock[kTradeStockCount] = {kBatteryCellItem, kCleanWaterItem, kMedPackItem, 12, 13, 3};
 
 // Converts 8-bit RGB values to the display's 16-bit color format.
 uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
@@ -110,6 +124,52 @@ bool validItemId(int16_t itemId) {
 // Validates an inventory index and confirms it points at a known item.
 bool validInventorySlot(int16_t slot) {
     return slot >= 0 && slot < static_cast<int16_t>(kInventoryCapacity) && validItemId(inventory[slot]);
+}
+
+// Checks whether an inventory slot is currently equipped in any gear slot.
+bool isEquippedInventorySlot(uint8_t invSlot) {
+    for (uint8_t i = 0; i < kEquipSlotCount; ++i) {
+        if (equipped[i] == invSlot) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Removes an item from the pack and clears any equipment/trade references.
+void removeInventorySlot(uint8_t invSlot) {
+    if (invSlot >= kInventoryCapacity) {
+        return;
+    }
+    for (uint8_t i = 0; i < kEquipSlotCount; ++i) {
+        if (equipped[i] == invSlot) {
+            equipped[i] = -1;
+        }
+    }
+    tradeOfferSelected[invSlot] = false;
+    inventory[invSlot] = -1;
+}
+
+// Totals carried value. This is informational and includes equipped gear.
+int16_t carriedTradeValue() {
+    int16_t total = 0;
+    for (uint8_t i = 0; i < kInventoryCapacity; ++i) {
+        if (validInventorySlot(i)) {
+            total += itemCatalog[inventory[i]].value;
+        }
+    }
+    return total;
+}
+
+// Totals value that can be offered without stripping equipped gear.
+int16_t availableTradeValue() {
+    int16_t total = 0;
+    for (uint8_t i = 0; i < kInventoryCapacity; ++i) {
+        if (validInventorySlot(i) && !isEquippedInventorySlot(i)) {
+            total += itemCatalog[inventory[i]].value;
+        }
+    }
+    return total;
 }
 
 // Rebuilds the active stat profile from equipped items each time it is needed.
@@ -548,6 +608,122 @@ bool addItem(uint8_t itemId, char* message, size_t messageSize) {
     return true;
 }
 
+// Clears the last reward list before resolving a new action or trade.
+void clearReward() {
+    rewardCount = 0;
+    rewardTitle[0] = '\0';
+    rewardSummary[0] = '\0';
+}
+
+// Records a received item so the reward screen can show it with an icon.
+void rememberRewardItem(uint8_t itemId) {
+    if (rewardCount < kMaxRewardItems) {
+        rewardItems[rewardCount++] = itemId;
+    }
+}
+
+// Adds an item to the pack and also records it for the reward summary screen.
+bool grantRewardItem(uint8_t itemId) {
+    char ignored[96];
+    const bool added = addItem(itemId, ignored, sizeof(ignored));
+    if (added) {
+        rememberRewardItem(itemId);
+    }
+    return added;
+}
+
+// Trade rewards are ordinary usable items, weighted by the value being granted.
+uint8_t randomTradeGoodForValue(uint8_t targetValue) {
+    if (targetValue >= 7 && random(0, 100) < 35) {
+        return kMedPackItem;
+    }
+    if (targetValue >= 5 && random(0, 100) < 35) {
+        return 12;
+    }
+    if (targetValue >= 4 && random(0, 100) < 50) {
+        return kCleanWaterItem;
+    }
+    if (targetValue >= 4 && random(0, 100) < 35) {
+        return 13;
+    }
+    return kBatteryCellItem;
+}
+
+// Converts abstract reward value into concrete barter goods in the inventory.
+void grantTradeGoods(uint8_t targetValue) {
+    uint8_t remaining = targetValue;
+    while (remaining > 0 && rewardCount < kMaxRewardItems) {
+        const uint8_t itemId = randomTradeGoodForValue(remaining);
+        if (!grantRewardItem(itemId)) {
+            return;
+        }
+        const uint8_t value = itemCatalog[itemId].value;
+        remaining = value >= remaining ? 0 : static_cast<uint8_t>(remaining - value);
+    }
+}
+
+// Pays a value demand by consuming unequipped items, preferring small goods.
+int16_t payTradeValue(int16_t requiredValue) {
+    int16_t paid = 0;
+    while (paid < requiredValue) {
+        int16_t bestSlot = -1;
+        uint8_t bestValue = 255;
+        for (uint8_t i = 0; i < kInventoryCapacity; ++i) {
+            if (!validInventorySlot(i) || isEquippedInventorySlot(i)) {
+                continue;
+            }
+            const uint8_t value = itemCatalog[inventory[i]].value;
+            if (value > 0 && value < bestValue) {
+                bestValue = value;
+                bestSlot = i;
+            }
+        }
+        if (bestSlot < 0) {
+            break;
+        }
+        paid += itemCatalog[inventory[bestSlot]].value;
+        removeInventorySlot(static_cast<uint8_t>(bestSlot));
+    }
+    return paid;
+}
+
+// Clears current trade selections and starts the trade window from page one.
+void resetTradeSelections() {
+    tradePage = 0;
+    for (uint8_t i = 0; i < kInventoryCapacity; ++i) {
+        tradeOfferSelected[i] = false;
+    }
+    for (uint8_t i = 0; i < kTradeStockCount; ++i) {
+        tradeWantSelected[i] = false;
+    }
+}
+
+// Totals the value the player is offering in the current trade.
+int16_t tradeOfferValue() {
+    int16_t total = 0;
+    for (uint8_t i = 0; i < kInventoryCapacity; ++i) {
+        if (tradeOfferSelected[i] && validInventorySlot(i)) {
+            total += itemCatalog[inventory[i]].value;
+        }
+    }
+    return total;
+}
+
+// Totals the value requested from the trader.
+int16_t tradeAskValue() {
+    int16_t total = 0;
+    for (uint8_t i = 0; i < kTradeStockCount; ++i) {
+        if (tradeWantSelected[i]) {
+            total += itemCatalog[tradeStock[i]].value;
+        }
+    }
+    return total;
+}
+
+bool tradeAvailableHere() {
+    return currentSite == 0 || currentSite == 1;
+}
+
 // Applies an inventory item: consumables resolve immediately, gear equips.
 void equipInventorySlot(uint8_t invSlot) {
     if (!validInventorySlot(invSlot)) {
@@ -557,9 +733,11 @@ void equipInventorySlot(uint8_t invSlot) {
     if (item.use.kind == ItemUseKind::Consume) {
         health = clampInt(health + item.use.healthDelta, 0, kMaxHealth);
         exposure = clampInt(exposure + item.use.exposureDelta, 0, kMaxExposure);
-        scrap = clampInt(scrap + item.use.scrapDelta, 0, 999);
+        if (item.use.attentionDelta != 0) {
+            siteAttention[currentSite] = clampInt(siteAttention[currentSite] + item.use.attentionDelta, 0, kMaxSiteAttention);
+        }
         if (item.use.consumedOnUse) {
-            inventory[invSlot] = -1;
+            removeInventorySlot(invSlot);
         }
         setStatus(item.use.resultText);
         return;
@@ -760,7 +938,7 @@ void drawPanel(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t border) {
     display.drawRoundRect(x, y, w, h, 8, border);
 }
 
-// Draws the persistent top bar with time, scrap, risk, cache, and attention.
+// Draws the persistent top bar with time, carried value, risk, cache, and attention.
 void drawHeader() {
     auto& display = M5.Display;
     const int32_t width = display.width();
@@ -774,8 +952,8 @@ void drawHeader() {
     if (width <= 560) {
         drawTextFit("Neon Exclusion", 18, 8, width - 36, TFT_WHITE, bg);
         display.setFont(&fonts::Font2);
-        drawFormattedTextFit(18, 40, width - 36, rgb(180, 190, 190), bg, "D%u %02u:00 scrap %d risk %d",
-                             static_cast<unsigned>(day), static_cast<unsigned>(currentHour()), scrap,
+        drawFormattedTextFit(18, 40, width - 36, rgb(180, 190, 190), bg, "D%u %02u:00 value %d risk %d",
+                             static_cast<unsigned>(day), static_cast<unsigned>(currentHour()), carriedTradeValue(),
                              effectiveRiskForSite(currentSite));
         return;
     }
@@ -784,11 +962,11 @@ void drawHeader() {
     display.setFont(&fonts::Font2);
     const int32_t headerInfoW = width - headerInfoX - 18;
     drawFormattedTextFit(headerInfoX, 16, headerInfoW, rgb(180, 190, 190), bg,
-                         "Day %u  %02u:00  scrap %d  dusk in %uh", static_cast<unsigned>(day),
-                         static_cast<unsigned>(currentHour()), scrap,
+                         "Day %u  %02u:00  value %d  dusk in %uh", static_cast<unsigned>(day),
+                         static_cast<unsigned>(currentHour()), carriedTradeValue(),
                          static_cast<unsigned>(timeRemainingTicks() * kTickHours));
     drawFormattedTextFit(headerInfoX, 38, headerInfoW, rgb(180, 190, 190), bg,
-                         "bill %d at dawn  risk %d  cache %u  attention %u", kDailyUpkeep,
+                         "bill %d value  risk %d  cache %u  attention %u", kDailyUpkeepValue,
                          effectiveRiskForSite(currentSite), siteCache[currentSite], siteAttention[currentSite]);
 }
 
@@ -965,23 +1143,23 @@ void coolSitesForNewDay() {
     }
 }
 
-// Advances dawn, applies clinic upkeep, and returns the runner to the berth.
+// Advances dawn, applies clinic upkeep in barter goods, and returns to berth.
 void startNewDay(const char* lead) {
     ++day;
     timeTick = 0;
     currentSite = 0;
     coolSitesForNewDay();
 
-    char bill[80];
-    if (scrap >= kDailyUpkeep) {
-        scrap -= kDailyUpkeep;
-        snprintf(bill, sizeof(bill), "Clinic meter paid: -%d scrap.", kDailyUpkeep);
+    char bill[96];
+    const int16_t paid = payTradeValue(kDailyUpkeepValue);
+    if (paid >= kDailyUpkeepValue) {
+        snprintf(bill, sizeof(bill), "Clinic meter paid with goods worth %d.", paid);
     } else {
-        const int16_t shortfall = kDailyUpkeep - scrap;
-        scrap = 0;
+        const int16_t shortfall = kDailyUpkeepValue - paid;
         health = clampInt(health - shortfall, 0, kMaxHealth);
         exposure = clampInt(exposure + shortfall, 0, kMaxExposure);
-        snprintf(bill, sizeof(bill), "Short on rent. Debt collectors take it out of your body.");
+        snprintf(bill, sizeof(bill), "Clinic bill short by %d value. Debt collectors take it out of your body.",
+                 shortfall);
     }
 
     char message[320];
@@ -1024,8 +1202,12 @@ void checkCollapse() {
     day += 1;
     health = 5;
     exposure = 3;
-    scrap = clampInt(scrap - 6, 0, 999);
-    setStatus("You wake under clinic lights with your boots still wet. Collapse care cost 6 scrap and a little pride.");
+    const int16_t paid = payTradeValue(6);
+    char message[180];
+    snprintf(message, sizeof(message),
+             "You wake under clinic lights with your boots still wet. Collapse care took goods worth %d and a little pride.",
+             paid);
+    setStatus(message);
 }
 
 // Resolves observe, explore, and lead actions through one risk/reward pipeline.
@@ -1035,6 +1217,7 @@ void resolveFieldAction(UiAction action) {
         return;
     }
 
+    clearReward();
     const Stats stats = deriveStats();
     const Site& site = sites[currentSite];
     const LeadKind lead = siteLead[currentSite];
@@ -1052,10 +1235,12 @@ void resolveFieldAction(UiAction action) {
     if (action == UiAction::Observe) {
         if (success) {
             const LeadKind foundLead = randomLeadForSite(currentSite);
-            const int16_t gain = random(0, 2);
+            const uint8_t gainValue = random(0, 2);
             siteLead[currentSite] = foundLead;
             siteIntel[currentSite] = clampInt(siteIntel[currentSite] + 1, 0, kMaxSiteIntel);
-            scrap += gain;
+            if (gainValue > 0) {
+                grantTradeGoods(static_cast<uint8_t>(gainValue + 2));
+            }
             snprintf(message, sizeof(message),
                      "%s %s %d/%d. Lead: %s. %s",
                      site.observeText, actionCheckText(action), total, target, leadName(foundLead), leadWhisper(foundLead));
@@ -1071,26 +1256,25 @@ void resolveFieldAction(UiAction action) {
                 --siteCache[currentSite];
             }
 
-            const int16_t gain = effectiveRiskForSite(currentSite) + random(1, 5);
-            scrap += gain;
+            const uint8_t gain = static_cast<uint8_t>(effectiveRiskForSite(currentSite) + random(1, 5));
+            grantTradeGoods(gain);
             if (siteLead[currentSite] == LeadKind::None && random(0, 100) < 55) {
                 const LeadKind foundLead = randomLeadForSite(currentSite);
                 siteLead[currentSite] = foundLead;
                 snprintf(message, sizeof(message),
-                         "You actively explore %s. %s %d/%d. +%d scrap, but the important thing is a %s.",
+                         "You actively explore %s. %s %d/%d. Goods worth about %d, plus a %s.",
                          site.name, actionCheckText(action), total, target, gain, leadName(foundLead));
             } else {
                 const uint8_t itemId = randomLootForAction(action);
                 const bool duplicate = hasCatalogItem(itemId) && itemCatalog[itemId].use.kind != ItemUseKind::Consume;
                 if (!duplicate && random(0, 100) < 58) {
-                    char itemMessage[112];
-                    addItem(itemId, itemMessage, sizeof(itemMessage));
-                    snprintf(message, sizeof(message), "You push through %s. %s %d/%d. +%d scrap. %s",
-                             site.name, actionCheckText(action), total, target, gain, itemMessage);
+                    grantRewardItem(itemId);
+                    snprintf(message, sizeof(message), "You push through %s. %s %d/%d. Goods worth about %d and %s.",
+                             site.name, actionCheckText(action), total, target, gain, itemCatalog[itemId].name);
                 } else {
-                    scrap += itemCatalog[itemId].value / 3;
+                    grantTradeGoods(static_cast<uint8_t>(itemCatalog[itemId].value / 2));
                     snprintf(message, sizeof(message),
-                             "You push through %s. %s %d/%d. +%d scrap and sellable salvage. Cache %u.",
+                             "You push through %s. %s %d/%d. Goods and salvage worth about %d. Cache %u.",
                              site.name, actionCheckText(action), total, target, gain, siteCache[currentSite]);
                 }
             }
@@ -1110,11 +1294,11 @@ void resolveFieldAction(UiAction action) {
 
             if (lead == LeadKind::Contact) {
                 siteIntel[currentSite] = clampInt(siteIntel[currentSite] + 1, 0, kMaxSiteIntel);
-                scrap += gain;
+                grantTradeGoods(static_cast<uint8_t>(gain));
                 siteAttention[currentSite] =
                     siteAttention[currentSite] > 0 ? static_cast<uint8_t>(siteAttention[currentSite] - 1) : 0;
                 snprintf(message, sizeof(message),
-                         "You approach the quiet contact correctly. %s %d/%d. +%d scrap, intel +1, attention softens.",
+                         "You approach the quiet contact correctly. %s %d/%d. Goods worth about %d, intel +1, attention softens.",
                          actionCheckText(action), total, target, gain);
             } else if (lead == LeadKind::Trail) {
                 siteIntel[currentSite] = clampInt(siteIntel[currentSite] + 1, 0, kMaxSiteIntel);
@@ -1136,16 +1320,16 @@ void resolveFieldAction(UiAction action) {
                 } else if (lead == LeadKind::Door) {
                     gain += 3;
                 }
-                scrap += gain;
                 if (!duplicate || itemCatalog[itemId].use.kind == ItemUseKind::Consume) {
-                    char itemMessage[112];
-                    addItem(itemId, itemMessage, sizeof(itemMessage));
-                    snprintf(message, sizeof(message), "You %s the %s. %s %d/%d. +%d scrap. %s",
-                             leadVerb(lead), leadName(lead), actionCheckText(action), total, target, gain, itemMessage);
+                    grantTradeGoods(static_cast<uint8_t>(gain));
+                    grantRewardItem(itemId);
+                    snprintf(message, sizeof(message), "You %s the %s. %s %d/%d. Goods worth about %d and %s.",
+                             leadVerb(lead), leadName(lead), actionCheckText(action), total, target, gain,
+                             itemCatalog[itemId].name);
                 } else {
-                    scrap += itemCatalog[itemId].value / 3;
+                    grantTradeGoods(static_cast<uint8_t>(gain + itemCatalog[itemId].value / 2));
                     snprintf(message, sizeof(message),
-                             "You %s the %s. %s %d/%d. +%d scrap and valuable fragments.",
+                             "You %s the %s. %s %d/%d. Goods and valuable fragments worth about %d.",
                              leadVerb(lead), leadName(lead), actionCheckText(action), total, target, gain);
                 }
             }
@@ -1164,9 +1348,13 @@ void resolveFieldAction(UiAction action) {
         return;
     }
 
+    snprintf(rewardTitle, sizeof(rewardTitle), "%s Complete", actionLabel(action));
+    snprintf(rewardSummary, sizeof(rewardSummary), "%s", message);
     setStatus(message);
     spendTime(actionTimeCost(action));
     checkCollapse();
+    currentScreen = Screen::Reward;
+    screenDirty = true;
 }
 
 // Moves the runner between sites, spending daylight and applying route dose.
@@ -1217,12 +1405,65 @@ void restOrRetreat() {
         return;
     }
 
-    const int16_t cost = scrap >= 2 ? 2 : scrap;
-    scrap -= cost;
+    const int16_t paid = payTradeValue(2);
     health = clampInt(health + 4, 0, kMaxHealth);
     exposure = clampInt(exposure - 4, 0, kMaxExposure);
-    startNewDay("A cot, a drip bag, and static through the wall. You recover what the city has not taken.");
+    char message[160];
+    snprintf(message, sizeof(message),
+             "A cot, a drip bag, and static through the wall. You pay goods worth %d and recover what the city has not taken.",
+             paid);
+    startNewDay(message);
     checkCollapse();
+}
+
+uint8_t maxTradePage() {
+    const uint8_t count = inventoryItemCount();
+    return count == 0 ? 0 : static_cast<uint8_t>((count - 1) / kTradeRowsPerPage);
+}
+
+void normalizeTradePage() {
+    const uint8_t maxPage = maxTradePage();
+    if (tradePage > maxPage) {
+        tradePage = maxPage;
+    }
+}
+
+bool tradeCanComplete() {
+    const int16_t ask = tradeAskValue();
+    return ask > 0 && tradeOfferValue() >= ask;
+}
+
+void completeTrade() {
+    const int16_t offer = tradeOfferValue();
+    const int16_t ask = tradeAskValue();
+    if (ask <= 0) {
+        setStatus("Choose what you want from the trader first.");
+        return;
+    }
+    if (offer < ask) {
+        setStatus("The trader shakes their head. Your side of the blanket is still light.");
+        return;
+    }
+
+    clearReward();
+    for (uint8_t i = 0; i < kInventoryCapacity; ++i) {
+        if (tradeOfferSelected[i] && validInventorySlot(i)) {
+            removeInventorySlot(i);
+        }
+    }
+    for (uint8_t i = 0; i < kTradeStockCount; ++i) {
+        if (tradeWantSelected[i]) {
+            grantRewardItem(tradeStock[i]);
+        }
+    }
+
+    snprintf(rewardTitle, sizeof(rewardTitle), "Trade Complete");
+    snprintf(rewardSummary, sizeof(rewardSummary), "You traded goods worth %d for goods worth %d. No one gives change.",
+             offer, ask);
+    setStatus(rewardSummary);
+    resetTradeSelections();
+    currentScreen = Screen::Reward;
+    screenDirty = true;
 }
 
 // Dispatches button presses into game actions and screen changes.
@@ -1273,6 +1514,50 @@ void handleAction(UiAction action, int16_t param) {
             break;
         case UiAction::InventoryNext:
             ++inventoryPage;
+            screenDirty = true;
+            break;
+        case UiAction::OpenTrade:
+            if (tradeAvailableHere()) {
+                resetTradeSelections();
+                currentScreen = Screen::Trade;
+                screenDirty = true;
+            } else {
+                setStatus("No one here is willing to spread a trade blanket.");
+            }
+            break;
+        case UiAction::ToggleTradeOffer:
+            if (param >= 0 && param < static_cast<int16_t>(kInventoryCapacity) && validInventorySlot(param) &&
+                !isEquippedInventorySlot(static_cast<uint8_t>(param))) {
+                tradeOfferSelected[param] = !tradeOfferSelected[param];
+                screenDirty = true;
+            }
+            break;
+        case UiAction::ToggleTradeWant:
+            if (param >= 0 && param < static_cast<int16_t>(kTradeStockCount)) {
+                tradeWantSelected[param] = !tradeWantSelected[param];
+                screenDirty = true;
+            }
+            break;
+        case UiAction::TradePrev:
+            if (tradePage > 0) {
+                --tradePage;
+                screenDirty = true;
+            }
+            break;
+        case UiAction::TradeNext:
+            ++tradePage;
+            normalizeTradePage();
+            screenDirty = true;
+            break;
+        case UiAction::AcceptTrade:
+            completeTrade();
+            break;
+        case UiAction::ClearTrade:
+            resetTradeSelections();
+            screenDirty = true;
+            break;
+        case UiAction::ContinueReward:
+            currentScreen = Screen::Field;
             screenDirty = true;
             break;
         case UiAction::Travel:
@@ -1330,8 +1615,13 @@ void drawFieldScreen() {
     const int32_t buttonY = height - bottomH;
     const int32_t gap = 10;
     const int32_t buttonW = (width - gap * 7) / 6;
-    addButton("Observe 2h", gap, buttonY + 8, buttonW, 52, UiAction::Observe, 0, rgb(90, 210, 220),
-              fieldActionAvailable(UiAction::Observe));
+    if (currentSite == 0) {
+        addButton("Trade", gap, buttonY + 8, buttonW, 52, UiAction::OpenTrade, 0, rgb(90, 210, 220),
+                  tradeAvailableHere());
+    } else {
+        addButton("Observe 2h", gap, buttonY + 8, buttonW, 52, UiAction::Observe, 0, rgb(90, 210, 220),
+                  fieldActionAvailable(UiAction::Observe));
+    }
     addButton("Explore 4h", gap * 2 + buttonW, buttonY + 8, buttonW, 52, UiAction::Explore, 0, rgb(230, 180, 70),
               fieldActionAvailable(UiAction::Explore));
     char leadButton[24];
@@ -1905,14 +2195,36 @@ void drawItemImage(const Item& item, int32_t x, int32_t y, int32_t w, int32_t h)
     }
 }
 
-// Checks whether an inventory slot is currently equipped in any gear slot.
-bool isEquippedInventorySlot(uint8_t invSlot) {
-    for (uint8_t i = 0; i < kEquipSlotCount; ++i) {
-        if (equipped[i] == invSlot) {
-            return true;
-        }
+// Draws a compact item icon for reward and barter rows.
+void drawMiniItemIcon(const Item& item, int32_t x, int32_t y, int32_t size, bool selected) {
+    auto& display = M5.Display;
+    const uint16_t bg = selected ? rgb(24, 34, 35) : rgb(10, 14, 16);
+    display.fillRoundRect(x, y, size, size, 6, bg);
+    display.drawRoundRect(x, y, size, size, 6, selected ? rgb(120, 240, 190) : item.color);
+    display.fillCircle(x + size / 2, y + size / 2, size / 4, item.color);
+    switch (item.slot) {
+        case Slot::Suit:
+            display.drawLine(x + size / 2, y + 8, x + 8, y + size - 8, rgb(180, 190, 180));
+            display.drawLine(x + size / 2, y + 8, x + size - 8, y + size - 8, rgb(180, 190, 180));
+            break;
+        case Slot::Detector:
+            display.drawCircle(x + size / 2, y + size / 2, size / 3, rgb(170, 220, 220));
+            break;
+        case Slot::Tool:
+            display.drawLine(x + 10, y + size - 10, x + size - 10, y + 10, rgb(220, 190, 110));
+            break;
+        case Slot::Weapon:
+            display.drawFastHLine(x + 9, y + size / 2, size - 18, rgb(230, 90, 120));
+            break;
+        case Slot::Artifact:
+            display.drawCircle(x + size / 2, y + size / 2, size / 3, rgb(130, 240, 180));
+            display.drawCircle(x + size / 2, y + size / 2, size / 5, rgb(40, 80, 60));
+            break;
+        case Slot::Consumable:
+            display.fillRoundRect(x + size / 2 - 6, y + 8, 12, size - 16, 4, rgb(220, 230, 210));
+            display.fillRect(x + size / 2 - 4, y + size / 2, 8, size / 3, item.color);
+            break;
     }
-    return false;
 }
 
 // Forward declaration lets item detail return to the inventory on bad state.
@@ -2001,8 +2313,8 @@ void drawItemDetailScreen() {
     drawTextFit("Effects", detailX + 20, top + imageH - 62, 70, rgb(210, 220, 215), bg);
     drawStatDelta(item, detailX + 96, top + imageH - 62, detailW - 132, bg);
     drawFormattedTextFit(detailX + 20, top + imageH - 36, detailW - 40, rgb(145, 160, 158), bg,
-                         "use %s  body %+d  dose %+d  scrap %+d", itemUseKindText(item.use.kind),
-                         item.use.healthDelta, item.use.exposureDelta, item.use.scrapDelta);
+                         "use %s  body %+d  dose %+d  attention %+d", itemUseKindText(item.use.kind),
+                         item.use.healthDelta, item.use.exposureDelta, item.use.attentionDelta);
 
     const int32_t buttonY = height - bottomH;
     addButton("Pack", margin, buttonY + 8, 160, 52, UiAction::Inventory, 0, rgb(90, 210, 220));
@@ -2092,6 +2404,156 @@ void drawInventoryScreen() {
               inventoryPage > 0);
     addButton("Next", margin + 358, buttonY + 8, 140, 52, UiAction::InventoryNext, 0, rgb(170, 120, 240),
               inventoryPage < maxPage);
+    addButton("Trade", width - margin - 180, buttonY + 8, 180, 52, UiAction::OpenTrade, 0, rgb(230, 180, 70),
+              tradeAvailableHere());
+    for (uint8_t i = 0; i < buttonCount; ++i) {
+        drawButton(buttons[i]);
+    }
+}
+
+// Draws the post-action receipt so rewards are visible as actual items.
+void drawRewardScreen() {
+    auto& display = M5.Display;
+    clearButtons();
+    display.fillScreen(rgb(3, 6, 9));
+    drawHeader();
+
+    const int32_t width = display.width();
+    const int32_t height = display.height();
+    const int32_t margin = 18;
+    const int32_t top = 82;
+    const int32_t bottomH = 72;
+    const int32_t panelH = height - top - bottomH - margin;
+    const uint16_t bg = rgb(8, 12, 17);
+
+    drawPanel(margin, top, width - margin * 2, panelH, rgb(120, 210, 180));
+    display.setFont(&fonts::Font4);
+    drawTextFit(rewardTitle[0] == '\0' ? "Action Complete" : rewardTitle, margin + 18, top + 16, width - 72,
+                TFT_WHITE, bg);
+    drawWrappedText(rewardSummary[0] == '\0' ? statusLine : rewardSummary, margin + 20, top + 58, width - 76, 4,
+                    rgb(210, 222, 214), bg);
+
+    display.setFont(&fonts::Font4);
+    drawTextFit("Received", margin + 20, top + 158, width - 76, rgb(130, 230, 200), bg);
+    if (rewardCount == 0) {
+        display.setFont(&fonts::Font2);
+        drawTextFit("No goods recovered. Sometimes the Zone only pays in information.", margin + 22, top + 204,
+                    width - 80, rgb(160, 178, 174), bg);
+    }
+
+    const int32_t cardW = (width - margin * 2 - 60) / 4;
+    for (uint8_t i = 0; i < rewardCount; ++i) {
+        const Item& item = itemCatalog[rewardItems[i]];
+        const int32_t col = i % 4;
+        const int32_t row = i / 4;
+        const int32_t cardX = margin + 20 + col * (cardW + 12);
+        const int32_t cardY = top + 202 + row * 112;
+        display.fillRoundRect(cardX, cardY, cardW, 96, 6, rgb(12, 18, 22));
+        display.drawRoundRect(cardX, cardY, cardW, 96, 6, item.color);
+        drawMiniItemIcon(item, cardX + 12, cardY + 16, 56, false);
+        display.setFont(&fonts::Font2);
+        drawTextFit(item.name, cardX + 80, cardY + 18, cardW - 92, TFT_WHITE, rgb(12, 18, 22));
+        drawFormattedTextFit(cardX + 80, cardY + 44, cardW - 92, rgb(150, 168, 170), rgb(12, 18, 22),
+                             "%s  value %u", item.tag, static_cast<unsigned>(item.value));
+    }
+
+    const int32_t buttonY = height - bottomH;
+    addButton("Continue", width - margin - 210, buttonY + 8, 210, 52, UiAction::ContinueReward, 0,
+              rgb(120, 220, 160));
+    addButton("Kit", margin, buttonY + 8, 150, 52, UiAction::Inventory, 0, rgb(170, 120, 240));
+    for (uint8_t i = 0; i < buttonCount; ++i) {
+        drawButton(buttons[i]);
+    }
+}
+
+// Draws a two-sided barter window where value must balance before acceptance.
+void drawTradeScreen() {
+    auto& display = M5.Display;
+    clearButtons();
+    normalizeTradePage();
+    display.fillScreen(rgb(3, 6, 9));
+    drawHeader();
+
+    const int32_t width = display.width();
+    const int32_t height = display.height();
+    const int32_t margin = 18;
+    const int32_t top = 82;
+    const int32_t bottomH = 72;
+    const int32_t panelH = height - top - bottomH - margin;
+    const int32_t gap = 16;
+    const int32_t leftW = (width - margin * 2 - gap) / 2;
+    const int32_t rightX = margin + leftW + gap;
+    const int32_t rightW = width - rightX - margin;
+    const int32_t rowH = 64;
+    const uint16_t bg = rgb(8, 12, 17);
+
+    drawPanel(margin, top, leftW, panelH, rgb(90, 210, 220));
+    drawPanel(rightX, top, rightW, panelH, rgb(230, 180, 70));
+
+    display.setFont(&fonts::Font4);
+    drawTextFit("Your Offer", margin + 16, top + 16, leftW - 32, TFT_WHITE, bg);
+    drawTextFit("Trader Blanket", rightX + 16, top + 16, rightW - 32, TFT_WHITE, bg);
+    display.setFont(&fonts::Font2);
+    drawFormattedTextFit(margin + 18, top + 52, leftW - 36, rgb(150, 168, 170), bg,
+                         "available %d  offered %d  page %u/%u", availableTradeValue(), tradeOfferValue(),
+                         static_cast<unsigned>(tradePage + 1), static_cast<unsigned>(maxTradePage() + 1));
+    drawFormattedTextFit(rightX + 18, top + 52, rightW - 36, rgb(150, 168, 170), bg,
+                         "wanted %d  balance %+d", tradeAskValue(), tradeOfferValue() - tradeAskValue());
+
+    const uint8_t startRow = static_cast<uint8_t>(tradePage * kTradeRowsPerPage);
+    uint8_t seen = 0;
+    uint8_t drawn = 0;
+    for (uint8_t i = 0; i < kInventoryCapacity && drawn < kTradeRowsPerPage; ++i) {
+        if (!validInventorySlot(i)) {
+            continue;
+        }
+        if (seen++ < startRow) {
+            continue;
+        }
+        const Item& item = itemCatalog[inventory[i]];
+        const bool equipped = isEquippedInventorySlot(i);
+        const bool selected = tradeOfferSelected[i];
+        const int32_t rowY = top + 88 + drawn * rowH;
+        const uint16_t rowBg = selected ? rgb(22, 34, 35) : rgb(12, 18, 22);
+        display.fillRoundRect(margin + 14, rowY, leftW - 28, rowH - 8, 6, rowBg);
+        display.drawRoundRect(margin + 14, rowY, leftW - 28, rowH - 8, 6,
+                              equipped ? rgb(70, 70, 74) : (selected ? rgb(120, 240, 190) : item.color));
+        drawMiniItemIcon(item, margin + 24, rowY + 8, 42, selected);
+        drawTextFit(item.name, margin + 76, rowY + 8, leftW - 182, equipped ? rgb(120, 126, 128) : TFT_WHITE, rowBg);
+        drawFormattedTextFit(margin + 76, rowY + 32, leftW - 182, rgb(150, 168, 170), rowBg, "%s value %u",
+                             item.tag, static_cast<unsigned>(item.value));
+        drawTextFit(equipped ? "equipped" : (selected ? "offer" : "tap"), margin + leftW - 92, rowY + 20, 62,
+                    equipped ? rgb(120, 126, 128) : rgb(120, 240, 190), rowBg);
+        addButton("", margin + 14, rowY, leftW - 28, rowH - 8, UiAction::ToggleTradeOffer, i, item.color, !equipped,
+                  false);
+        ++drawn;
+    }
+
+    for (uint8_t i = 0; i < kTradeStockCount; ++i) {
+        const Item& item = itemCatalog[tradeStock[i]];
+        const bool selected = tradeWantSelected[i];
+        const int32_t rowY = top + 88 + i * rowH;
+        const uint16_t rowBg = selected ? rgb(34, 28, 20) : rgb(12, 18, 22);
+        display.fillRoundRect(rightX + 14, rowY, rightW - 28, rowH - 8, 6, rowBg);
+        display.drawRoundRect(rightX + 14, rowY, rightW - 28, rowH - 8, 6,
+                              selected ? rgb(230, 190, 90) : item.color);
+        drawMiniItemIcon(item, rightX + 24, rowY + 8, 42, selected);
+        drawTextFit(item.name, rightX + 76, rowY + 8, rightW - 176, TFT_WHITE, rowBg);
+        drawFormattedTextFit(rightX + 76, rowY + 32, rightW - 176, rgb(150, 168, 170), rowBg, "%s value %u",
+                             item.tag, static_cast<unsigned>(item.value));
+        drawTextFit(selected ? "want" : "tap", rightX + rightW - 88, rowY + 20, 58, rgb(230, 190, 90), rowBg);
+        addButton("", rightX + 14, rowY, rightW - 28, rowH - 8, UiAction::ToggleTradeWant, i, item.color, true, false);
+    }
+
+    const int32_t buttonY = height - bottomH;
+    addButton("Field", margin, buttonY + 8, 140, 52, UiAction::BackToField, 0, rgb(90, 210, 220));
+    addButton("Clear", margin + 154, buttonY + 8, 130, 52, UiAction::ClearTrade, 0, rgb(160, 160, 170));
+    addButton("Prev", margin + 298, buttonY + 8, 120, 52, UiAction::TradePrev, 0, rgb(170, 120, 240), tradePage > 0);
+    addButton("Next", margin + 432, buttonY + 8, 120, 52, UiAction::TradeNext, 0, rgb(170, 120, 240),
+              tradePage < maxTradePage());
+    addButton("Trade", width - margin - 210, buttonY + 8, 210, 52, UiAction::AcceptTrade, 0, rgb(120, 220, 160),
+              tradeCanComplete());
+
     for (uint8_t i = 0; i < buttonCount; ++i) {
         drawButton(buttons[i]);
     }
@@ -2108,6 +2570,12 @@ void drawCurrentScreen() {
             break;
         case Screen::Map:
             drawMapScreen();
+            break;
+        case Screen::Reward:
+            drawRewardScreen();
+            break;
+        case Screen::Trade:
+            drawTradeScreen();
             break;
         case Screen::Field:
             drawFieldScreen();
@@ -2133,9 +2601,13 @@ void initializeColors() {
 void initializeGame() {
     for (uint8_t i = 0; i < kInventoryCapacity; ++i) {
         inventory[i] = -1;
+        tradeOfferSelected[i] = false;
     }
     for (uint8_t i = 0; i < kEquipSlotCount; ++i) {
         equipped[i] = -1;
+    }
+    for (uint8_t i = 0; i < kTradeStockCount; ++i) {
+        tradeWantSelected[i] = false;
     }
     for (uint8_t i = 0; i < kSiteCount; ++i) {
         siteAttention[i] = 0;
@@ -2150,6 +2622,9 @@ void initializeGame() {
     inventory[3] = 7;
     inventory[4] = 12;
     inventory[5] = 13;
+    inventory[6] = kBatteryCellItem;
+    inventory[7] = kCleanWaterItem;
+    inventory[8] = kMedPackItem;
     equipped[0] = 0;
     equipped[1] = 1;
     equipped[2] = 2;
