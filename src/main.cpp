@@ -152,6 +152,11 @@ StoryArc pendingStoryArc = StoryArc::Count;
 char statusLine[320] = "The rain tastes metallic. Your kit is the only thing between you and the quiet.";
 char rewardTitle[80] = "";
 char rewardSummary[320] = "";
+char dialogueTitle[80] = "";
+char dialogueBody[360] = "";
+bool dialogueQueued = false;
+Screen dialogueNextScreen = Screen::Field;
+uint16_t dialogueAccent = 0;
 
 const uint8_t tradeStock[kTradeStockCount] = {kBatteryCellItem,        kCleanWaterItem,      kMedPackItem, 12,
                                               13,                      kGhostTeaAmpouleItem, kBlackIodineStripItem,
@@ -1266,6 +1271,42 @@ void setStatus(const char* text) {
     screenDirty = true;
 }
 
+void queueDialogue(const char* title, const char* body, uint16_t accent) {
+    if (!dialogueQueued) {
+        snprintf(dialogueTitle, sizeof(dialogueTitle), "%s", title == nullptr ? "Signal" : title);
+        snprintf(dialogueBody, sizeof(dialogueBody), "%s", body == nullptr ? "" : body);
+        dialogueAccent = accent;
+        dialogueQueued = true;
+        return;
+    }
+
+    appendAbilityNote(dialogueBody, sizeof(dialogueBody), body);
+    if (title != nullptr && title[0] != '\0') {
+        snprintf(dialogueTitle, sizeof(dialogueTitle), "%s", title);
+    }
+    dialogueAccent = accent;
+}
+
+void openQueuedDialogue(Screen nextScreen) {
+    if (dialogueQueued) {
+        dialogueNextScreen = nextScreen;
+        currentScreen = Screen::Dialogue;
+    } else {
+        currentScreen = nextScreen;
+    }
+    screenDirty = true;
+}
+
+void continueDialogue() {
+    dialogueQueued = false;
+    dialogueTitle[0] = '\0';
+    dialogueBody[0] = '\0';
+    const Screen next = dialogueNextScreen;
+    dialogueNextScreen = Screen::Field;
+    currentScreen = next;
+    screenDirty = true;
+}
+
 // Checks for unique gear duplicates before adding rewards.
 bool hasCatalogItem(uint8_t itemId) {
     for (uint8_t i = 0; i < kInventoryCapacity; ++i) {
@@ -2003,6 +2044,7 @@ void startNewDay(const char* lead) {
     if (otherPaid) {
         snprintf(bill, sizeof(bill),
                  "Clinic meter already green. The orderly says you paid an hour ago with dry boots and a worse smile.");
+        queueDialogue("Out of the Ordinary", bill, rgb(220, 90, 190));
     } else {
         const int16_t paid = payTradeValue(billValue);
         if (paid >= billValue) {
@@ -2022,7 +2064,9 @@ void startNewDay(const char* lead) {
         for (uint8_t i = 1; i < kSiteCount; ++i) {
             if (siteIntel[i] > 0) {
                 --siteIntel[i];
-                appendAbilityNote(message, sizeof(message), "Ashfall blurs one map note overnight.");
+                const char* note = "Ashfall blurs one map note overnight.";
+                appendAbilityNote(message, sizeof(message), note);
+                queueDialogue("Map Note Lost", note, rgb(150, 160, 165));
                 break;
             }
         }
@@ -2030,7 +2074,9 @@ void startNewDay(const char* lead) {
     if (equippedCatalogItem(kSpareHourItem) && random(0, 100) < 35) {
         const uint8_t site = random(1, kSiteCount);
         siteLead[site] = randomLeadForSite(site);
-        appendAbilityNote(message, sizeof(message), "The Spare Hour mutates a lead while nobody owns the clock.");
+        const char* note = "The Spare Hour mutates a lead while nobody owns the clock.";
+        appendAbilityNote(message, sizeof(message), note);
+        queueDialogue("Clock Slip", note, rgb(230, 180, 70));
     }
     setStatus(message);
 }
@@ -2073,7 +2119,10 @@ void checkCollapse() {
             --siteCache[currentSite];
         }
         currentSite = 0;
-        setStatus("The Mercy Bell rings without a clapper. You collapse at the clinic door and the site loses a cache.");
+        const char* message =
+            "The Mercy Bell rings without a clapper. You collapse at the clinic door and the site loses a cache.";
+        setStatus(message);
+        queueDialogue("Artifact Intervention", message, rgb(230, 180, 70));
         return;
     }
 
@@ -2082,7 +2131,10 @@ void checkCollapse() {
         health = health <= 0 ? 1 : health;
         exposure = clampInt(exposure, 0, kMaxExposure - 1);
         siteAttention[currentSite] = clampInt(siteAttention[currentSite] + 2, 0, kMaxSiteAttention);
-        setStatus("The Copper Saint burns hot enough to hurt. You stay standing at 1 body, and the district notices.");
+        const char* message =
+            "The Copper Saint burns hot enough to hurt. You stay standing at 1 body, and the district notices.";
+        setStatus(message);
+        queueDialogue("Artifact Intervention", message, rgb(210, 130, 60));
         return;
     }
 
@@ -2105,7 +2157,9 @@ void requestStoryDecision(StoryArc arc, char* message, size_t messageSize) {
         return;
     }
     pendingStoryArc = arc;
-    appendAbilityNote(message, messageSize, "A story decision waits. Choose how this rumour becomes true.");
+    const char* note = "A story decision waits. Choose how this rumour becomes true.";
+    appendAbilityNote(message, messageSize, note);
+    queueDialogue("Decision Point", storyDecisionPrompt(arc), rgb(230, 180, 70));
 }
 
 void completeStoryDecision(uint8_t choice) {
@@ -2232,8 +2286,10 @@ void advanceBatteriesForDead(UiAction action, OutcomeLevel outcome, LeadKind lea
          (action == UiAction::FollowLead && lead == LeadKind::Contact) || equippedCatalogItem(kDeadPagerItem) ||
          equippedCatalogItem(kCopperToothRadioItem) || equippedCatalogItem(kWarmBatteryItem))) {
         storyStage[arc] = 1;
-        appendAbilityNote(message, messageSize,
-                          "Batteries for the Dead begins: Sister Clamp asks if you brought power for Station Mercy.");
+        const char* note =
+            "Batteries for the Dead begins: Sister Clamp asks if you brought power for Station Mercy.";
+        appendAbilityNote(message, messageSize, note);
+        queueDialogue("Rumour Updated", note, rgb(230, 180, 70));
         return;
     }
     if (storyStage[arc] == 1 && action == UiAction::FollowLead &&
@@ -2249,8 +2305,10 @@ void advanceLastSaleAtB2(UiAction action, OutcomeLevel outcome, LeadKind lead, c
     }
     if (storyStage[arc] == 0 && (action == UiAction::Explore || lead == LeadKind::Door)) {
         storyStage[arc] = 1;
-        appendAbilityNote(message, messageSize,
-                          "The Last Sale at Level B2 begins: the PA reserves something for your account below the water.");
+        const char* note =
+            "The Last Sale at Level B2 begins: the PA reserves something for your account below the water.";
+        appendAbilityNote(message, messageSize, note);
+        queueDialogue("Rumour Updated", note, rgb(90, 210, 220));
         return;
     }
     if (storyStage[arc] == 1 && action == UiAction::FollowLead &&
@@ -2268,8 +2326,9 @@ void advancePersonWhoNeverEntered(UiAction action, OutcomeLevel outcome, LeadKin
     if (storyStage[arc] == 1 && currentSite == 1 &&
         (action == UiAction::Observe || lead == LeadKind::Contact || lead == LeadKind::Door)) {
         storyStage[arc] = 2;
-        appendAbilityNote(message, messageSize,
-                          "The Person Who Never Entered continues: Mink says your face has traffic.");
+        const char* note = "The Person Who Never Entered continues: Mink says your face has traffic.";
+        appendAbilityNote(message, messageSize, note);
+        queueDialogue("Rumour Updated", note, rgb(220, 90, 190));
         return;
     }
     if (storyStage[arc] == 2 && currentSite == 4 &&
@@ -2712,8 +2771,7 @@ void resolveFieldAction(UiAction action) {
     setStatus(message);
     spendTime(spentTicks);
     checkCollapse();
-    currentScreen = hasPendingStoryDecision() ? Screen::StoryDecision : Screen::Reward;
-    screenDirty = true;
+    openQueuedDialogue(hasPendingStoryDecision() ? Screen::StoryDecision : Screen::Reward);
 }
 
 // Moves the runner between sites, spending daylight and applying route dose.
@@ -2767,9 +2825,9 @@ void travelToSite(uint8_t targetSite) {
              static_cast<unsigned>(travelTicks * kTickHours), sites[currentSite].name, routeDose,
              effectiveRiskForSite(currentSite), routeNote);
     setStatus(message);
-    currentScreen = Screen::Field;
     spendTime(travelTicks);
     checkCollapse();
+    openQueuedDialogue(Screen::Field);
 }
 
 // Resting at the clinic heals; resting elsewhere retreats to the safe berth.
@@ -2780,6 +2838,7 @@ void restOrRetreat() {
         setStatus("You cut the run short and spend time limping back to the clinic before the rain gets clever.");
         spendTime(actionTimeCost(UiAction::Rest));
         checkCollapse();
+        openQueuedDialogue(Screen::Field);
         return;
     }
 
@@ -2792,6 +2851,7 @@ void restOrRetreat() {
              paid);
     startNewDay(message);
     checkCollapse();
+    openQueuedDialogue(Screen::Field);
 }
 
 uint8_t maxTradePage() {
@@ -2944,6 +3004,9 @@ void handleAction(UiAction action, int16_t param) {
         case UiAction::ContinueReward:
             currentScreen = Screen::Field;
             screenDirty = true;
+            break;
+        case UiAction::ContinueDialogue:
+            continueDialogue();
             break;
         case UiAction::Travel:
             travelToSite(static_cast<uint8_t>(param));
@@ -4112,6 +4175,43 @@ void drawStoryDecisionScreen() {
     }
 }
 
+// Draws a modal event notice for quest updates and strange interruptions.
+void drawDialogueScreen() {
+    auto& display = M5.Display;
+    clearButtons();
+    display.fillScreen(rgb(2, 5, 8));
+    drawHeader();
+
+    const int32_t width = display.width();
+    const int32_t height = display.height();
+    const int32_t modalW = width - 120;
+    const int32_t modalH = height - 190;
+    const int32_t x = (width - modalW) / 2;
+    const int32_t y = 104;
+    const uint16_t bg = rgb(8, 12, 17);
+    const uint16_t accent = dialogueAccent == 0 ? rgb(130, 230, 200) : dialogueAccent;
+
+    display.fillRoundRect(x + 8, y + 10, modalW, modalH, 8, rgb(1, 3, 5));
+    drawPanel(x, y, modalW, modalH, accent);
+    display.fillRect(x + 18, y + 18, 8, modalH - 36, accent);
+
+    display.setFont(&fonts::Font4);
+    drawTextFit(dialogueTitle[0] == '\0' ? "Signal" : dialogueTitle, x + 42, y + 22, modalW - 84, TFT_WHITE, bg);
+    display.drawFastHLine(x + 42, y + 68, modalW - 84, rgb(55, 70, 70));
+
+    display.setFont(&fonts::Font2);
+    drawWrappedText(dialogueBody[0] == '\0' ? statusLine : dialogueBody, x + 42, y + 92, modalW - 84, 7,
+                    rgb(210, 222, 214), bg);
+
+    const int32_t buttonY = y + modalH - 72;
+    const char* label = dialogueNextScreen == Screen::StoryDecision ? "Choose" : "Continue";
+    addButton(label, x + modalW - 220, buttonY, 180, 52, UiAction::ContinueDialogue, 0, accent);
+
+    for (uint8_t i = 0; i < buttonCount; ++i) {
+        drawButton(buttons[i]);
+    }
+}
+
 // Routes the dirty-screen redraw to the active screen renderer.
 void drawCurrentScreen() {
     switch (currentScreen) {
@@ -4135,6 +4235,9 @@ void drawCurrentScreen() {
             break;
         case Screen::StoryDecision:
             drawStoryDecisionScreen();
+            break;
+        case Screen::Dialogue:
+            drawDialogueScreen();
             break;
         case Screen::Field:
             drawFieldScreen();
@@ -4206,6 +4309,11 @@ void initializeGame() {
         storyOutcome[i] = 0;
     }
     pendingStoryArc = StoryArc::Count;
+    dialogueQueued = false;
+    dialogueNextScreen = Screen::Field;
+    dialogueTitle[0] = '\0';
+    dialogueBody[0] = '\0';
+    dialogueAccent = 0;
 
     inventory[0] = 0;
     inventory[1] = 3;

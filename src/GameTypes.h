@@ -12,6 +12,7 @@ enum class Screen : uint8_t {
     Trade,
     Tracker,
     StoryDecision,
+    Dialogue,
 };
 
 // Slots describe broad item categories and also drive equipment placement.
@@ -84,6 +85,7 @@ enum class UiAction : uint8_t {
     AcceptTrade,
     ClearTrade,
     ContinueReward,
+    ContinueDialogue,
     Travel,
     Rest,
 };
