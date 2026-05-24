@@ -24,11 +24,61 @@ constexpr uint8_t kMaxSiteIntel = 3;
 constexpr uint8_t kMaxSiteAttention = 6;
 constexpr int16_t kDailyUpkeepValue = 4;
 constexpr uint8_t kMaxRewardItems = 12;
-constexpr uint8_t kTradeStockCount = 6;
+constexpr uint8_t kTradeStockCount = 8;
 constexpr uint8_t kTradeRowsPerPage = 6;
 constexpr uint8_t kBatteryCellItem = 15;
 constexpr uint8_t kCleanWaterItem = 16;
 constexpr uint8_t kMedPackItem = 17;
+constexpr uint8_t kReedskinMantleItem = 18;
+constexpr uint8_t kHospitalVinylApronItem = 19;
+constexpr uint8_t kStaticBridalVeilItem = 20;
+constexpr uint8_t kRoadworkerHuskItem = 21;
+constexpr uint8_t kFloodChoirWadersItem = 22;
+constexpr uint8_t kAshfallPonchoItem = 23;
+constexpr uint8_t kGlasshouseSmockItem = 24;
+constexpr uint8_t kDebtCollectorsCoatItem = 25;
+constexpr uint8_t kDeadPagerItem = 26;
+constexpr uint8_t kMothCompassItem = 27;
+constexpr uint8_t kRainCounterItem = 28;
+constexpr uint8_t kKindlingScopeItem = 29;
+constexpr uint8_t kBoneTuningForkItem = 30;
+constexpr uint8_t kCheckoutOracleItem = 31;
+constexpr uint8_t kSparrowDroneShellItem = 32;
+constexpr uint8_t kGlassLungMeterItem = 33;
+constexpr uint8_t kRainKeyItem = 34;
+constexpr uint8_t kDrownedRegisterItem = 35;
+constexpr uint8_t kServiceWormItem = 36;
+constexpr uint8_t kTarTapeRollItem = 37;
+constexpr uint8_t kMercyBoltCutterItem = 38;
+constexpr uint8_t kPulseStaplerItem = 39;
+constexpr uint8_t kSignalChalkItem = 40;
+constexpr uint8_t kValveRosaryItem = 41;
+constexpr uint8_t kMapScalpelItem = 42;
+constexpr uint8_t kFlareHookItem = 43;
+constexpr uint8_t kStaticKnifeItem = 44;
+constexpr uint8_t kTollHammerItem = 45;
+constexpr uint8_t kMercySirenItem = 46;
+constexpr uint8_t kRivetSaintItem = 47;
+constexpr uint8_t kColdLanternItem = 48;
+constexpr uint8_t kCivicBatonItem = 49;
+constexpr uint8_t kWhiteReceiptItem = 50;
+constexpr uint8_t kSpareHourItem = 51;
+constexpr uint8_t kLittleFloodSaintItem = 52;
+constexpr uint8_t kApologyEngineItem = 53;
+constexpr uint8_t kEmptyNameTagItem = 54;
+constexpr uint8_t kBlackReedSeedItem = 55;
+constexpr uint8_t kBorrowedShadowItem = 56;
+constexpr uint8_t kCopperToothRadioItem = 57;
+constexpr uint8_t kMercyBellItem = 58;
+constexpr uint8_t kCalendarOfRainsItem = 59;
+constexpr uint8_t kRedactedPhotographItem = 60;
+constexpr uint8_t kTenthButtonItem = 61;
+constexpr uint8_t kGhostTeaAmpouleItem = 62;
+constexpr uint8_t kBlackIodineStripItem = 63;
+constexpr uint8_t kSleeplessMintItem = 64;
+constexpr uint8_t kFenceRunnersSaltItem = 65;
+constexpr uint8_t kCheapCourageSyrupItem = 66;
+constexpr uint8_t kBlueMilkSachetItem = 67;
 constexpr uint8_t kRubberTrenchItem = 1;
 constexpr uint8_t kMirrorweaveItem = 2;
 constexpr uint8_t kCoilDetectorItem = 3;
@@ -43,6 +93,7 @@ constexpr uint8_t kNullCharmItem = 11;
 constexpr uint8_t kCopperSaintItem = 14;
 
 enum class OutcomeLevel : uint8_t { Failure, Partial, Success, Full };
+enum class StoryArc : uint8_t { BatteriesForTheDead, LastSaleAtB2, PersonWhoNeverEntered, Count };
 
 // Runtime state is intentionally plain globals because the Arduino loop is a
 // single-scene program and redraws from this state directly.
@@ -75,12 +126,37 @@ bool railPistolSpent = false;
 bool quietNailgunSpent = false;
 bool mourningLensSpent = false;
 bool copperSaintSpent = false;
+bool staticVeilSpent = false;
+bool debtCoatSpent = false;
+bool deadPagerSpent = false;
+bool rainKeySpent = false;
+bool flareHookSpent = false;
+bool mercySirenSpent = false;
+bool apologyEngineSpent = false;
+bool borrowedShadowSpent = false;
+bool mercyBellSpent = false;
+bool calendarSpent = false;
+uint8_t ghostTeaSite = 255;
+bool blackIodineGuard = false;
+bool sleeplessMintReady = false;
+bool fenceSaltReady = false;
+bool cheapCourageReady = false;
+bool blueMilkBlurReady = false;
 bool nullCharmSpent[kSiteCapacity];
+bool ashfallPonchoSpent[kSiteCapacity];
+bool tarTapeSpent[kSiteCapacity];
+bool signalChalkMark[kSiteCapacity];
+uint8_t storyStage[static_cast<uint8_t>(StoryArc::Count)];
+uint8_t storyOutcome[static_cast<uint8_t>(StoryArc::Count)];
 char statusLine[320] = "The rain tastes metallic. Your kit is the only thing between you and the quiet.";
 char rewardTitle[80] = "";
 char rewardSummary[320] = "";
 
-const uint8_t tradeStock[kTradeStockCount] = {kBatteryCellItem, kCleanWaterItem, kMedPackItem, 12, 13, 3};
+const uint8_t tradeStock[kTradeStockCount] = {kBatteryCellItem,        kCleanWaterItem,      kMedPackItem, 12,
+                                              13,                      kGhostTeaAmpouleItem, kBlackIodineStripItem,
+                                              kBlueMilkSachetItem};
+
+int16_t dailyUpkeepValue();
 
 // Converts 8-bit RGB values to the display's 16-bit color format.
 uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
@@ -167,6 +243,15 @@ bool equippedCatalogItem(uint8_t itemId) {
     return false;
 }
 
+// Several one-shot doses apply to the current site or the next relevant action.
+bool ghostTeaApplies(LeadKind lead) {
+    return ghostTeaSite == currentSite && (lead == LeadKind::Contact || lead == LeadKind::Trail);
+}
+
+uint8_t storyIndex(StoryArc arc) {
+    return static_cast<uint8_t>(arc);
+}
+
 // Removes an item from the pack and clears any equipment/trade references.
 void removeInventorySlot(uint8_t invSlot) {
     if (invSlot >= kInventoryCapacity) {
@@ -233,9 +318,15 @@ uint8_t currentHour() {
     return static_cast<uint8_t>(kDayStartHour + timeTick * kTickHours);
 }
 
+// Some artifacts extend the day rather than changing an action roll.
+uint8_t maxTimeTicksForDay() {
+    return static_cast<uint8_t>(kMaxTimeTicks + (equippedCatalogItem(kSpareHourItem) ? 1 : 0));
+}
+
 // Reports how many action ticks remain before the day ends.
 uint8_t timeRemainingTicks() {
-    return timeTick < kMaxTimeTicks ? static_cast<uint8_t>(kMaxTimeTicks - timeTick) : 0;
+    const uint8_t maxTicks = maxTimeTicksForDay();
+    return timeTick < maxTicks ? static_cast<uint8_t>(maxTicks - timeTick) : 0;
 }
 
 // Combines base site risk, attention, intel, and dusk pressure into live danger.
@@ -417,13 +508,57 @@ int16_t abilitySkillDelta(UiAction action, LeadKind lead) {
         if (equippedCatalogItem(kGlassNeedleItem)) {
             delta += 1;
         }
+        if (equippedCatalogItem(kMothCompassItem) || equippedCatalogItem(kRainCounterItem)) {
+            delta += 1;
+        }
+        if ((currentSite == 2 || currentSite == 4) && equippedCatalogItem(kGlasshouseSmockItem)) {
+            delta += 2;
+        }
+        if (currentSite == 1 && equippedCatalogItem(kSparrowDroneShellItem)) {
+            delta += 1;
+        }
+        if (currentSite == 3 && equippedCatalogItem(kCopperToothRadioItem)) {
+            delta += 2;
+        }
+        if (blueMilkBlurReady) {
+            delta -= 2;
+        }
+        if (cheapCourageReady) {
+            delta -= 1;
+        }
+    }
+    if (action == UiAction::Explore) {
+        if (currentSite == 1 && equippedCatalogItem(kTollHammerItem)) {
+            delta += 1;
+        }
+        if (currentSite == 2 && equippedCatalogItem(kDrownedRegisterItem)) {
+            delta += 1;
+        }
+        if (equippedCatalogItem(kRoadworkerHuskItem) || equippedCatalogItem(kRivetSaintItem)) {
+            delta += 1;
+        }
+        if (cheapCourageReady) {
+            delta += 2;
+        }
     }
     if (action == UiAction::FollowLead) {
         if ((lead == LeadKind::Contact || lead == LeadKind::Trail) && equippedCatalogItem(kMirrorweaveItem)) {
             delta += 1;
         }
+        if (ghostTeaApplies(lead)) {
+            delta += 2;
+        }
+        if (fenceSaltReady && lead == LeadKind::Trail) {
+            delta += 2;
+        }
+        if (lead == LeadKind::Trail && currentSite == 4 && equippedCatalogItem(kReedskinMantleItem)) {
+            delta += 2;
+        }
         if (lead == LeadKind::Anomaly && equippedCatalogItem(kGlassNeedleItem)) {
             delta += 2;
+        }
+        if (lead == LeadKind::Anomaly && equippedCatalogItem(kColdLanternItem)) {
+            delta += 1;
         }
         if (lead == LeadKind::Door && equippedCatalogItem(kSolderRigItem)) {
             delta += 2;
@@ -431,7 +566,27 @@ int16_t abilitySkillDelta(UiAction action, LeadKind lead) {
         if ((lead == LeadKind::Door || lead == LeadKind::Cache) && equippedCatalogItem(kPrybarKitItem)) {
             delta += 1;
         }
+        if ((lead == LeadKind::Door || lead == LeadKind::Cache) &&
+            (equippedCatalogItem(kMercyBoltCutterItem) || equippedCatalogItem(kValveRosaryItem))) {
+            delta += 2;
+        }
+        if (lead == LeadKind::Door && equippedCatalogItem(kRoadworkerHuskItem)) {
+            delta += 1;
+        }
         if (lead == LeadKind::Trail && equippedCatalogItem(kCoilDetectorItem)) {
+            delta += 1;
+        }
+        if (lead == LeadKind::Cache && currentSite == 2 && equippedCatalogItem(kCheckoutOracleItem)) {
+            delta += 1;
+        }
+        if ((lead == LeadKind::Contact || lead == LeadKind::Cache) && currentSite == 1 &&
+            equippedCatalogItem(kKindlingScopeItem)) {
+            delta += 1;
+        }
+        if ((lead == LeadKind::Contact || lead == LeadKind::Door) && equippedCatalogItem(kStaticKnifeItem)) {
+            delta += 1;
+        }
+        if (lead == LeadKind::Contact && equippedCatalogItem(kRedactedPhotographItem)) {
             delta += 1;
         }
     }
@@ -445,14 +600,48 @@ int16_t abilityTargetDelta(UiAction action, LeadKind lead) {
         if ((lead == LeadKind::Contact || lead == LeadKind::Trail) && equippedCatalogItem(kMirrorweaveItem)) {
             delta -= 1;
         }
+        if (lead == LeadKind::Trail && currentSite == 4 && equippedCatalogItem(kReedskinMantleItem)) {
+            delta -= 1;
+        }
+        if (lead == LeadKind::Contact && equippedCatalogItem(kHospitalVinylApronItem)) {
+            delta += 1;
+        }
+        if ((lead == LeadKind::Contact || lead == LeadKind::Door) && equippedCatalogItem(kStaticKnifeItem)) {
+            delta -= 1;
+        }
         if (lead == LeadKind::Door && equippedCatalogItem(kSolderRigItem)) {
+            delta -= 1;
+        }
+        if (lead == LeadKind::Door && equippedCatalogItem(kRainKeyItem) && !rainKeySpent) {
+            delta -= 2;
+        }
+        if (lead == LeadKind::Door && equippedCatalogItem(kEmptyNameTagItem) && (currentSite == 1 || currentSite == 2)) {
             delta -= 1;
         }
         if ((lead == LeadKind::Door || lead == LeadKind::Cache) && equippedCatalogItem(kPrybarKitItem)) {
             delta -= 1;
         }
+        if ((lead == LeadKind::Door || lead == LeadKind::Cache) &&
+            (equippedCatalogItem(kMercyBoltCutterItem) || equippedCatalogItem(kValveRosaryItem))) {
+            delta -= 1;
+        }
+        if (lead == LeadKind::Cache && currentSite == 2 &&
+            (equippedCatalogItem(kDrownedRegisterItem) || equippedCatalogItem(kFloodChoirWadersItem) ||
+             equippedCatalogItem(kCheckoutOracleItem))) {
+            delta -= 1;
+        }
         if (lead == LeadKind::Anomaly && equippedCatalogItem(kGlassNeedleItem)) {
             delta -= 1;
+        }
+        if (lead == LeadKind::Anomaly && equippedCatalogItem(kKindlingScopeItem)) {
+            delta += 1;
+        }
+        if (lead == LeadKind::Anomaly && equippedCatalogItem(kFlareHookItem)) {
+            delta += 1;
+        }
+        if ((lead == LeadKind::Door || lead == LeadKind::Cache || lead == LeadKind::Anomaly) &&
+            equippedCatalogItem(kGlasshouseSmockItem)) {
+            delta += 1;
         }
     }
     return delta;
@@ -464,11 +653,36 @@ int16_t abilityDoseDelta(UiAction action, LeadKind lead) {
     if (action == UiAction::Explore && currentSite == 2 && equippedCatalogItem(kRubberTrenchItem)) {
         delta -= 1;
     }
+    if (action == UiAction::Explore && currentSite == 2 &&
+        (equippedCatalogItem(kHospitalVinylApronItem) || equippedCatalogItem(kFloodChoirWadersItem))) {
+        delta -= 1;
+    }
+    if (action == UiAction::Explore && equippedCatalogItem(kAshfallPonchoItem) && !ashfallPonchoSpent[currentSite]) {
+        delta -= 1;
+    }
     if (action == UiAction::FollowLead && lead == LeadKind::Trail && equippedCatalogItem(kCoilDetectorItem)) {
+        delta -= 1;
+    }
+    if (action == UiAction::FollowLead && lead == LeadKind::Trail &&
+        (equippedCatalogItem(kReedskinMantleItem) || equippedCatalogItem(kFlareHookItem))) {
+        delta -= 1;
+    }
+    if (action == UiAction::FollowLead && lead == LeadKind::Cache &&
+        (equippedCatalogItem(kHospitalVinylApronItem) || equippedCatalogItem(kTarTapeRollItem))) {
         delta -= 1;
     }
     if (action == UiAction::FollowLead && lead == LeadKind::Anomaly && equippedCatalogItem(kGlassNeedleItem)) {
         delta += 1;
+    }
+    if (action == UiAction::FollowLead && lead == LeadKind::Anomaly && blackIodineGuard) {
+        delta -= 2;
+    }
+    if (action == UiAction::FollowLead && lead == LeadKind::Anomaly &&
+        (equippedCatalogItem(kColdLanternItem) || equippedCatalogItem(kGlassLungMeterItem))) {
+        delta -= 1;
+    }
+    if (fenceSaltReady && (action == UiAction::Travel || action == UiAction::FollowLead) && lead == LeadKind::Trail) {
+        delta -= 1;
     }
     if (action == UiAction::Observe && equippedCatalogItem(kMourningLensItem)) {
         delta += 1;
@@ -483,14 +697,46 @@ int16_t abilityAttentionDelta(UiAction action, LeadKind lead, bool rewardOutcome
         if ((lead == LeadKind::Contact || lead == LeadKind::Trail) && equippedCatalogItem(kMirrorweaveItem)) {
             delta -= 1;
         }
+        if ((lead == LeadKind::Contact || lead == LeadKind::Trail) && ghostTeaApplies(lead)) {
+            delta -= 1;
+        }
+        if (fenceSaltReady && lead == LeadKind::Trail) {
+            delta -= 1;
+        }
         if (lead == LeadKind::Door && equippedCatalogItem(kSolderRigItem)) {
             delta -= 1;
+        }
+        if (lead == LeadKind::Door && equippedCatalogItem(kRainKeyItem) && !rainKeySpent) {
+            delta += 2;
         }
         if ((lead == LeadKind::Door || lead == LeadKind::Cache) && equippedCatalogItem(kPrybarKitItem)) {
             delta += 1;
         }
+        if ((lead == LeadKind::Door || lead == LeadKind::Cache) &&
+            (equippedCatalogItem(kMercyBoltCutterItem) || equippedCatalogItem(kTollHammerItem))) {
+            delta += 1;
+        }
         if ((lead == LeadKind::Door || lead == LeadKind::Contact) && equippedCatalogItem(kQuietNailgunItem)) {
             delta -= 1;
+        }
+        if (lead == LeadKind::Contact && equippedCatalogItem(kCivicBatonItem)) {
+            delta += 1;
+        }
+    }
+    if (action == UiAction::Observe) {
+        if (equippedCatalogItem(kSparrowDroneShellItem) && rewardOutcome) {
+            delta -= 1;
+        }
+        if (fenceSaltReady) {
+            delta -= 1;
+        }
+    }
+    if (action == UiAction::Explore) {
+        if (equippedCatalogItem(kRailPistolItem) || equippedCatalogItem(kTollHammerItem)) {
+            delta += 1;
+        }
+        if (currentSite == 1 && equippedCatalogItem(kRoadworkerHuskItem)) {
+            delta += 1;
         }
     }
     return delta;
@@ -505,11 +751,39 @@ void describeActionAbilities(UiAction action, LeadKind lead, char* buffer, size_
     if (action == UiAction::Observe && equippedCatalogItem(kGlassNeedleItem)) {
         appendAbilityNote(buffer, bufferSize, "The Glass Needle points at the space your eyes keep skipping.");
     }
+    if (action == UiAction::Observe && equippedCatalogItem(kDeadPagerItem) && !deadPagerSpent) {
+        appendAbilityNote(buffer, bufferSize, "The Dead Pager may turn a bad read into an unwanted appointment.");
+    }
+    if (action == UiAction::Observe && equippedCatalogItem(kMothCompassItem)) {
+        appendAbilityNote(buffer, bufferSize, "The Moth Compass twitches toward profitable rot.");
+    }
+    if (action == UiAction::Observe && equippedCatalogItem(kSparrowDroneShellItem)) {
+        appendAbilityNote(buffer, bufferSize, "The Sparrow Shell marks camera blind spots with one tired eye.");
+    }
+    if (action == UiAction::Observe && currentSite == 3 && equippedCatalogItem(kCopperToothRadioItem)) {
+        appendAbilityNote(buffer, bufferSize, "The Copper Tooth Radio chews two broadcasts down to one usable lead.");
+    }
+    if (action == UiAction::Explore && equippedCatalogItem(kRoadworkerHuskItem)) {
+        appendAbilityNote(buffer, bufferSize, "The Roadworker Husk makes impact feel bureaucratic.");
+    }
+    if (action == UiAction::Explore && currentSite == 2 && equippedCatalogItem(kDrownedRegisterItem)) {
+        appendAbilityNote(buffer, bufferSize, "The Drowned Register insists every Mall find be rung up.");
+    }
     if (action == UiAction::FollowLead && lead == LeadKind::Anomaly && equippedCatalogItem(kGlassNeedleItem)) {
         appendAbilityNote(buffer, bufferSize, "The Glass Needle makes the wrong-light profitable.");
     }
+    if (action == UiAction::FollowLead && lead == LeadKind::Anomaly && equippedCatalogItem(kColdLanternItem)) {
+        appendAbilityNote(buffer, bufferSize, "The Cold Lantern lights the room the world is hiding.");
+    }
     if (action == UiAction::FollowLead && lead == LeadKind::Door && equippedCatalogItem(kSolderRigItem)) {
         appendAbilityNote(buffer, bufferSize, "The Solder Rig smells powered locks through the rain.");
+    }
+    if (action == UiAction::FollowLead && lead == LeadKind::Door && equippedCatalogItem(kRainKeyItem) && !rainKeySpent) {
+        appendAbilityNote(buffer, bufferSize, "The Rain Key can cheat one lock, though locks remember.");
+    }
+    if (action == UiAction::FollowLead && (lead == LeadKind::Door || lead == LeadKind::Cache) &&
+        equippedCatalogItem(kMercyBoltCutterItem)) {
+        appendAbilityNote(buffer, bufferSize, "The Mercy Bolt Cutter makes late decisions travel through metal.");
     }
     if (action == UiAction::FollowLead && (lead == LeadKind::Door || lead == LeadKind::Cache) &&
         equippedCatalogItem(kPrybarKitItem)) {
@@ -519,11 +793,21 @@ void describeActionAbilities(UiAction action, LeadKind lead, char* buffer, size_
         equippedCatalogItem(kMirrorweaveItem)) {
         appendAbilityNote(buffer, bufferSize, "Mirrorweave borrows the advert light and gives back a safer silhouette.");
     }
+    if (action == UiAction::FollowLead && lead == LeadKind::Trail && currentSite == 4 &&
+        equippedCatalogItem(kReedskinMantleItem)) {
+        appendAbilityNote(buffer, bufferSize, "The Reedskin Mantle moves in the Verge rhythm.");
+    }
+    if (action == UiAction::FollowLead && ghostTeaApplies(lead)) {
+        appendAbilityNote(buffer, bufferSize, "Ghost Tea makes the site forget where your outline belongs.");
+    }
     if (action == UiAction::FollowLead && lead == LeadKind::Trail && equippedCatalogItem(kCoilDetectorItem)) {
         appendAbilityNote(buffer, bufferSize, "The Coil Detector clicks before the road lies.");
     }
     if (action == UiAction::Explore && equippedCatalogItem(kRailPistolItem) && !railPistolSpent) {
         appendAbilityNote(buffer, bufferSize, "The Rail Pistol can still turn a bad push into a loud answer.");
+    }
+    if (fenceSaltReady && (action == UiAction::Observe || lead == LeadKind::Trail)) {
+        appendAbilityNote(buffer, bufferSize, "Fence Runner's Salt keeps heat from finding a grip.");
     }
 }
 
@@ -557,6 +841,21 @@ const char* actionCheckText(UiAction action) {
         case UiAction::Explore:
             return "GRIT+FILTER";
         case UiAction::FollowLead:
+            if ((siteLead[currentSite] == LeadKind::Contact || siteLead[currentSite] == LeadKind::Door) &&
+                equippedCatalogItem(kStaticKnifeItem)) {
+                return "GHOST+TECH";
+            }
+            if (siteLead[currentSite] == LeadKind::Door && equippedCatalogItem(kEmptyNameTagItem) &&
+                (currentSite == 1 || currentSite == 2)) {
+                return "GHOST+TECH";
+            }
+            if (siteLead[currentSite] == LeadKind::Contact && equippedCatalogItem(kDebtCollectorsCoatItem) &&
+                !debtCoatSpent) {
+                return "GRIT+GHOST";
+            }
+            if (siteLead[currentSite] == LeadKind::Door && equippedCatalogItem(kSolderRigItem)) {
+                return "TECH+SCAN";
+            }
             return leadCheckText(siteLead[currentSite]);
         default:
             return "--";
@@ -626,7 +925,14 @@ int16_t actionSkill(UiAction action, const Stats& stats) {
             skill = stats.grit + stats.filter;
             break;
         case UiAction::FollowLead:
-            if (lead == LeadKind::Door && equippedCatalogItem(kSolderRigItem)) {
+            if ((lead == LeadKind::Contact || lead == LeadKind::Door) && equippedCatalogItem(kStaticKnifeItem)) {
+                skill = stats.ghost + stats.tech;
+            } else if (lead == LeadKind::Door && equippedCatalogItem(kEmptyNameTagItem) &&
+                       (currentSite == 1 || currentSite == 2)) {
+                skill = stats.ghost + stats.tech;
+            } else if (lead == LeadKind::Contact && equippedCatalogItem(kDebtCollectorsCoatItem) && !debtCoatSpent) {
+                skill = stats.grit + stats.ghost;
+            } else if (lead == LeadKind::Door && equippedCatalogItem(kSolderRigItem)) {
                 skill = stats.tech + stats.scan;
             } else {
                 skill = leadSkill(lead, stats);
@@ -742,7 +1048,24 @@ int16_t routeExposureCost(uint8_t targetSite, const Stats& stats) {
     }
 
     const int16_t routeLoad = travelTicksToSite(targetSite) + siteAttention[targetSite] / 2;
-    return clampInt((sites[targetSite].risk + routeLoad + stats.strain - stats.filter) / 4, 0, 4);
+    int16_t dose = clampInt((sites[targetSite].risk + routeLoad + stats.strain - stats.filter) / 4, 0, 4);
+    if ((targetSite == 4 || currentSite == 4) && equippedCatalogItem(kReedskinMantleItem)) {
+        --dose;
+    }
+    if ((targetSite == 2 || currentSite == 2) &&
+        (equippedCatalogItem(kFloodChoirWadersItem) || equippedCatalogItem(kLittleFloodSaintItem))) {
+        --dose;
+    }
+    if (equippedCatalogItem(kRainCounterItem)) {
+        --dose;
+    }
+    if (signalChalkMark[targetSite]) {
+        --dose;
+    }
+    if (fenceSaltReady) {
+        --dose;
+    }
+    return clampInt(dose, 0, 4);
 }
 
 // Checks whether the player can reach a destination before the day closes.
@@ -848,8 +1171,11 @@ uint8_t randomTradeGoodForValue(uint8_t targetValue) {
     if (targetValue >= 7 && random(0, 100) < 35) {
         return kMedPackItem;
     }
+    if (targetValue >= 6 && random(0, 100) < 30) {
+        return random(0, 100) < 50 ? kBlackIodineStripItem : kBlueMilkSachetItem;
+    }
     if (targetValue >= 5 && random(0, 100) < 35) {
-        return 12;
+        return random(0, 100) < 50 ? 12 : kGhostTeaAmpouleItem;
     }
     if (targetValue >= 4 && random(0, 100) < 50) {
         return kCleanWaterItem;
@@ -940,12 +1266,26 @@ void equipInventorySlot(uint8_t invSlot) {
     if (!validInventorySlot(invSlot)) {
         return;
     }
-    const Item& item = itemCatalog[inventory[invSlot]];
+    const uint8_t itemId = static_cast<uint8_t>(inventory[invSlot]);
+    const Item& item = itemCatalog[itemId];
     if (item.use.kind == ItemUseKind::Consume) {
         health = clampInt(health + item.use.healthDelta, 0, kMaxHealth);
         exposure = clampInt(exposure + item.use.exposureDelta, 0, kMaxExposure);
         if (item.use.attentionDelta != 0) {
             siteAttention[currentSite] = clampInt(siteAttention[currentSite] + item.use.attentionDelta, 0, kMaxSiteAttention);
+        }
+        if (itemId == kGhostTeaAmpouleItem) {
+            ghostTeaSite = currentSite;
+        } else if (itemId == kBlackIodineStripItem) {
+            blackIodineGuard = true;
+        } else if (itemId == kSleeplessMintItem) {
+            sleeplessMintReady = true;
+        } else if (itemId == kFenceRunnersSaltItem) {
+            fenceSaltReady = true;
+        } else if (itemId == kCheapCourageSyrupItem) {
+            cheapCourageReady = true;
+        } else if (itemId == kBlueMilkSachetItem) {
+            blueMilkBlurReady = true;
         }
         if (item.use.consumedOnUse) {
             removeInventorySlot(invSlot);
@@ -1177,7 +1517,7 @@ void drawHeader() {
                          static_cast<unsigned>(currentHour()), carriedTradeValue(),
                          static_cast<unsigned>(timeRemainingTicks() * kTickHours));
     drawFormattedTextFit(headerInfoX, 38, headerInfoW, rgb(180, 190, 190), bg,
-                         "bill %d value  risk %d  cache %u  attention %u", kDailyUpkeepValue,
+                         "bill %d value  risk %d  cache %u  attention %u", dailyUpkeepValue(),
                          effectiveRiskForSite(currentSite), siteCache[currentSite], siteAttention[currentSite]);
 }
 
@@ -1193,7 +1533,7 @@ void drawStatsPanel(int32_t x, int32_t y, int32_t w, int32_t h) {
 
     drawMeter(x + 16, y + 56, w - 32, 14, health, kMaxHealth, rgb(230, 80, 90), "Body");
     drawMeter(x + 16, y + 102, w - 32, 14, exposure, kMaxExposure, rgb(170, 230, 80), "Exposure");
-    drawMeter(x + 16, y + 148, w - 32, 14, timeTick, kMaxTimeTicks, rgb(230, 180, 70), "Clock");
+    drawMeter(x + 16, y + 148, w - 32, 14, timeTick, maxTimeTicksForDay(), rgb(230, 180, 70), "Clock");
 
     const int32_t statY = y + 180;
     display.setFont(&fonts::Font2);
@@ -1296,27 +1636,76 @@ uint8_t randomLootForAction(UiAction action) {
     const uint8_t risk = static_cast<uint8_t>(effectiveRiskForSite(currentSite));
     const bool rare = random(0, 100) < (18 + risk * 5);
     if (rare && risk >= 4) {
-        const uint8_t artifacts[] = {9, 10, 11, 14};
+        const uint8_t artifacts[] = {9,
+                                     10,
+                                     11,
+                                     14,
+                                     kWhiteReceiptItem,
+                                     kSpareHourItem,
+                                     kLittleFloodSaintItem,
+                                     kApologyEngineItem,
+                                     kEmptyNameTagItem,
+                                     kBlackReedSeedItem,
+                                     kBorrowedShadowItem,
+                                     kCopperToothRadioItem,
+                                     kMercyBellItem,
+                                     kCalendarOfRainsItem,
+                                     kRedactedPhotographItem,
+                                     kTenthButtonItem};
         return artifacts[random(0, sizeof(artifacts) / sizeof(artifacts[0]))];
     }
 
     if (action == UiAction::Observe) {
-        const uint8_t observeLoot[] = {4, 10, 11, 12};
+        if (currentSite == 3) {
+            const uint8_t relayObserve[] = {kDeadPagerItem, kMothCompassItem, kBoneTuningForkItem,
+                                            kSparrowDroneShellItem, kCopperToothRadioItem, kBatteryCellItem};
+            return relayObserve[random(0, sizeof(relayObserve) / sizeof(relayObserve[0]))];
+        }
+        if (currentSite == 4) {
+            const uint8_t vergeObserve[] = {kReedskinMantleItem, kGlasshouseSmockItem, kBoneTuningForkItem,
+                                            kBlackReedSeedItem, kBorrowedShadowItem, kGhostTeaAmpouleItem};
+            return vergeObserve[random(0, sizeof(vergeObserve) / sizeof(vergeObserve[0]))];
+        }
+        const uint8_t observeLoot[] = {4, 10, 11, 12, kRainCounterItem, kKindlingScopeItem, kGlassLungMeterItem,
+                                       kSignalChalkItem, kWhiteReceiptItem};
         return observeLoot[random(0, sizeof(observeLoot) / sizeof(observeLoot[0]))];
     }
     if (action == UiAction::FollowLead) {
         const LeadKind lead = siteLead[currentSite];
         if (lead == LeadKind::Contact || lead == LeadKind::Trail) {
-            const uint8_t quietLoot[] = {2, 7, 11, 13};
+            const uint8_t quietLoot[] = {2, 7, 11, 13, kStaticBridalVeilItem, kDebtCollectorsCoatItem,
+                                         kDeadPagerItem, kFlareHookItem, kStaticKnifeItem, kMercySirenItem,
+                                         kCivicBatonItem, kGhostTeaAmpouleItem, kFenceRunnersSaltItem};
             return quietLoot[random(0, sizeof(quietLoot) / sizeof(quietLoot[0]))];
         }
         if (lead == LeadKind::Anomaly) {
-            const uint8_t anomalyLoot[] = {9, 10, 11, 14};
+            const uint8_t anomalyLoot[] = {9, 10, 11, 14, kMothCompassItem, kBoneTuningForkItem, kColdLanternItem,
+                                           kWhiteReceiptItem, kApologyEngineItem, kBorrowedShadowItem,
+                                           kCalendarOfRainsItem, kBlackIodineStripItem, kBlueMilkSachetItem};
             return anomalyLoot[random(0, sizeof(anomalyLoot) / sizeof(anomalyLoot[0]))];
+        }
+        if (lead == LeadKind::Door || lead == LeadKind::Cache) {
+            const uint8_t hardLoot[] = {1, 5, 6, 8, kRoadworkerHuskItem, kFloodChoirWadersItem, kRainKeyItem,
+                                        kDrownedRegisterItem, kServiceWormItem, kMercyBoltCutterItem,
+                                        kPulseStaplerItem, kValveRosaryItem, kMapScalpelItem, kTenthButtonItem};
+            return hardLoot[random(0, sizeof(hardLoot) / sizeof(hardLoot[0]))];
         }
     }
 
-    const uint8_t exploreLoot[] = {1, 6, 8, 9, 12, 13};
+    if (currentSite == 1) {
+        const uint8_t spillwayLoot[] = {2, 7, 8, 13, kStaticBridalVeilItem, kDebtCollectorsCoatItem,
+                                        kKindlingScopeItem, kTollHammerItem, kMercySirenItem, kCivicBatonItem,
+                                        kRedactedPhotographItem, kFenceRunnersSaltItem};
+        return spillwayLoot[random(0, sizeof(spillwayLoot) / sizeof(spillwayLoot[0]))];
+    }
+    if (currentSite == 2) {
+        const uint8_t mallLoot[] = {1, 6, 12, kHospitalVinylApronItem, kFloodChoirWadersItem, kCheckoutOracleItem,
+                                    kDrownedRegisterItem, kTarTapeRollItem, kValveRosaryItem,
+                                    kLittleFloodSaintItem, kTenthButtonItem, kSleeplessMintItem};
+        return mallLoot[random(0, sizeof(mallLoot) / sizeof(mallLoot[0]))];
+    }
+    const uint8_t exploreLoot[] = {1, 6, 8, 9, 12, 13, kAshfallPonchoItem, kRainCounterItem, kRoadworkerHuskItem,
+                                   kServiceWormItem, kRivetSaintItem, kCheapCourageSyrupItem};
     return exploreLoot[random(0, sizeof(exploreLoot) / sizeof(exploreLoot[0]))];
 }
 
@@ -1362,6 +1751,35 @@ void coolSitesForNewDay() {
     }
 }
 
+int16_t dailyUpkeepValue() {
+    int16_t bill = kDailyUpkeepValue;
+    if (equippedCatalogItem(kDebtCollectorsCoatItem)) {
+        ++bill;
+    }
+    if (hasCatalogItem(kLittleFloodSaintItem)) {
+        ++bill;
+    }
+    if (storyOutcome[storyIndex(StoryArc::PersonWhoNeverEntered)] == 2) {
+        bill = clampInt(bill - 2, 1, 12);
+    }
+    return bill;
+}
+
+bool otherRunnerPaysDawnBill() {
+    const Stats stats = deriveStats();
+    const uint8_t arc = storyIndex(StoryArc::PersonWhoNeverEntered);
+    if (storyOutcome[arc] == 1 && random(0, 100) < 45) {
+        return true;
+    }
+    if (storyStage[arc] == 0 &&
+        (stats.ghost >= 4 || equippedCatalogItem(kNullCharmItem) || equippedCatalogItem(kBorrowedShadowItem) ||
+         equippedCatalogItem(kMirrorweaveItem))) {
+        storyStage[arc] = 1;
+        return true;
+    }
+    return false;
+}
+
 // Advances dawn, applies clinic upkeep in barter goods, and returns to berth.
 void startNewDay(const char* lead) {
     ++day;
@@ -1373,31 +1791,70 @@ void startNewDay(const char* lead) {
     quietNailgunSpent = false;
     mourningLensSpent = false;
     copperSaintSpent = false;
+    staticVeilSpent = false;
+    debtCoatSpent = false;
+    deadPagerSpent = false;
+    rainKeySpent = false;
+    flareHookSpent = false;
+    mercySirenSpent = false;
+    apologyEngineSpent = false;
+    borrowedShadowSpent = false;
+    mercyBellSpent = false;
+    calendarSpent = false;
+    ghostTeaSite = 255;
+    blackIodineGuard = false;
+    sleeplessMintReady = false;
+    fenceSaltReady = false;
+    cheapCourageReady = false;
+    blueMilkBlurReady = false;
     for (uint8_t i = 0; i < kSiteCapacity; ++i) {
         nullCharmSpent[i] = false;
+        ashfallPonchoSpent[i] = false;
+        tarTapeSpent[i] = false;
     }
 
     char bill[96];
-    const int16_t paid = payTradeValue(kDailyUpkeepValue);
-    if (paid >= kDailyUpkeepValue) {
-        snprintf(bill, sizeof(bill), "Clinic meter paid with goods worth %d.", paid);
+    const int16_t billValue = dailyUpkeepValue();
+    const bool otherPaid = otherRunnerPaysDawnBill();
+    if (otherPaid) {
+        snprintf(bill, sizeof(bill),
+                 "Clinic meter already green. The orderly says you paid an hour ago with dry boots and a worse smile.");
     } else {
-        const int16_t shortfall = kDailyUpkeepValue - paid;
-        health = clampInt(health - shortfall, 0, kMaxHealth);
-        exposure = clampInt(exposure + shortfall, 0, kMaxExposure);
-        snprintf(bill, sizeof(bill), "Clinic bill short by %d value. Debt collectors take it out of your body.",
-                 shortfall);
+        const int16_t paid = payTradeValue(billValue);
+        if (paid >= billValue) {
+            snprintf(bill, sizeof(bill), "Clinic meter paid with goods worth %d.", paid);
+        } else {
+            const int16_t shortfall = billValue - paid;
+            health = clampInt(health - shortfall, 0, kMaxHealth);
+            exposure = clampInt(exposure + shortfall, 0, kMaxExposure);
+            snprintf(bill, sizeof(bill), "Clinic bill short by %d value. Debt collectors take it out of your body.",
+                     shortfall);
+        }
     }
 
     char message[320];
     snprintf(message, sizeof(message), "%s %s", lead, bill);
+    if (equippedCatalogItem(kAshfallPonchoItem) && random(0, 100) < 30) {
+        for (uint8_t i = 1; i < kSiteCount; ++i) {
+            if (siteIntel[i] > 0) {
+                --siteIntel[i];
+                appendAbilityNote(message, sizeof(message), "Ashfall blurs one map note overnight.");
+                break;
+            }
+        }
+    }
+    if (equippedCatalogItem(kSpareHourItem) && random(0, 100) < 35) {
+        const uint8_t site = random(1, kSiteCount);
+        siteLead[site] = randomLeadForSite(site);
+        appendAbilityNote(message, sizeof(message), "The Spare Hour mutates a lead while nobody owns the clock.");
+    }
     setStatus(message);
 }
 
 // Spends action time and resolves forced overnight consequences at curfew.
 void spendTime(uint8_t ticks) {
     timeTick = static_cast<uint8_t>(timeTick + ticks);
-    if (timeTick < kMaxTimeTicks) {
+    if (timeTick < maxTimeTicksForDay()) {
         screenDirty = true;
         return;
     }
@@ -1420,6 +1877,19 @@ void spendTime(uint8_t ticks) {
 // Handles the clinic recovery loop after the runner hits a fail state.
 void checkCollapse() {
     if (health > 0 && exposure < kMaxExposure) {
+        return;
+    }
+
+    if (equippedCatalogItem(kMercyBellItem) && !mercyBellSpent) {
+        mercyBellSpent = true;
+        health = health <= 0 ? 1 : health;
+        exposure = clampInt(exposure, 0, kMaxExposure - 1);
+        siteAttention[currentSite] = clampInt(siteAttention[currentSite] + 2, 0, kMaxSiteAttention);
+        if (siteCache[currentSite] > 0) {
+            --siteCache[currentSite];
+        }
+        currentSite = 0;
+        setStatus("The Mercy Bell rings without a clapper. You collapse at the clinic door and the site loses a cache.");
         return;
     }
 
@@ -1446,6 +1916,154 @@ void checkCollapse() {
     setStatus(message);
 }
 
+void advanceBatteriesForDead(UiAction action, OutcomeLevel outcome, LeadKind lead, char* message, size_t messageSize) {
+    const uint8_t arc = storyIndex(StoryArc::BatteriesForTheDead);
+    if (!outcomeHasReward(outcome)) {
+        return;
+    }
+    if (storyStage[arc] == 1 && currentSite == 1 && action == UiAction::FollowLead && lead == LeadKind::Contact) {
+        storyStage[arc] = 2;
+        storyOutcome[arc] = 3;
+        grantTradeGoods(10);
+        siteAttention[3] = clampInt(siteAttention[3] + 2, 0, kMaxSiteAttention);
+        appendAbilityNote(message, messageSize,
+                          "You sell the frequency. By morning the market rents little radios full of last words.");
+        return;
+    }
+    if (currentSite != 3) {
+        return;
+    }
+    if (storyStage[arc] == 0 &&
+        ((action == UiAction::Observe && siteLead[currentSite] == LeadKind::Contact) ||
+         (action == UiAction::FollowLead && lead == LeadKind::Contact) || equippedCatalogItem(kDeadPagerItem) ||
+         equippedCatalogItem(kCopperToothRadioItem) || equippedCatalogItem(kWarmBatteryItem))) {
+        storyStage[arc] = 1;
+        appendAbilityNote(message, messageSize,
+                          "Batteries for the Dead begins: Sister Clamp asks if you brought power for Station Mercy.");
+        return;
+    }
+    if (storyStage[arc] == 1 && action == UiAction::FollowLead &&
+        (lead == LeadKind::Door || lead == LeadKind::Anomaly)) {
+        storyStage[arc] = 2;
+        if (equippedCatalogItem(kRailPistolItem)) {
+            storyOutcome[arc] = 2;
+            siteAttention[3] = siteAttention[3] > 2 ? static_cast<uint8_t>(siteAttention[3] - 2) : 0;
+            exposure = clampInt(exposure - 1, 0, kMaxExposure);
+            appendAbilityNote(message, messageSize,
+                              "You silence Station Mercy. Relay Grave is only wind and metal for one honest minute.");
+        } else if (equippedCatalogItem(kCopperToothRadioItem) || equippedCatalogItem(kDeadPagerItem)) {
+            storyOutcome[arc] = 4;
+            if (!hasCatalogItem(kCopperToothRadioItem)) {
+                grantRewardItem(kCopperToothRadioItem);
+            }
+            appendAbilityNote(message, messageSize,
+                              "You keep one voice. It moves into your pocket and says it is not lonely too quickly.");
+        } else {
+            storyOutcome[arc] = 1;
+            siteIntel[3] = kMaxSiteIntel;
+            appendAbilityNote(message, messageSize,
+                              "You preserve the Choir. First Relay observe each day now feels like it knows a path.");
+        }
+    }
+}
+
+void advanceLastSaleAtB2(UiAction action, OutcomeLevel outcome, LeadKind lead, char* message, size_t messageSize) {
+    const uint8_t arc = storyIndex(StoryArc::LastSaleAtB2);
+    if (currentSite != 2 || !outcomeHasReward(outcome)) {
+        return;
+    }
+    if (storyStage[arc] == 0 && (action == UiAction::Explore || lead == LeadKind::Door)) {
+        storyStage[arc] = 1;
+        appendAbilityNote(message, messageSize,
+                          "The Last Sale at Level B2 begins: the PA reserves something for your account below the water.");
+        return;
+    }
+    if (storyStage[arc] == 1 && action == UiAction::FollowLead &&
+        (lead == LeadKind::Door || lead == LeadKind::Cache || lead == LeadKind::Anomaly)) {
+        storyStage[arc] = 2;
+        if (equippedCatalogItem(kRailPistolItem) || equippedCatalogItem(kSolderRigItem) ||
+            equippedCatalogItem(kColdLanternItem)) {
+            storyOutcome[arc] = 4;
+            siteAttention[2] = siteAttention[2] > 3 ? static_cast<uint8_t>(siteAttention[2] - 3) : 0;
+            grantTradeGoods(8);
+            appendAbilityNote(message, messageSize,
+                              "You shut down the Manager Below. Milo cries because the static is finally honest.");
+        } else if (equippedCatalogItem(kDrownedRegisterItem) || equippedCatalogItem(kCheckoutOracleItem) ||
+                   equippedCatalogItem(kEmptyNameTagItem)) {
+            storyOutcome[arc] = 3;
+            siteCache[2] = clampInt(siteCache[2] + 2, 0, sites[2].maxCache);
+            siteAttention[2] = clampInt(siteAttention[2] + 2, 0, kMaxSiteAttention);
+            appendAbilityNote(message, messageSize,
+                              "You feed the Manager Below. Mall cache improves, and hunger gets a loyalty card.");
+        } else if (equippedCatalogItem(kWhiteReceiptItem) || equippedCatalogItem(kTenthButtonItem)) {
+            storyOutcome[arc] = 2;
+            if (!hasCatalogItem(kTenthButtonItem)) {
+                grantRewardItem(kTenthButtonItem);
+            }
+            exposure = clampInt(exposure + 1, 0, kMaxExposure);
+            appendAbilityNote(message, messageSize,
+                              "You pay with a memory. The speakers thank you in a voice that used to be warm.");
+        } else {
+            storyOutcome[arc] = 1;
+            siteIntel[2] = kMaxSiteIntel;
+            if (!hasCatalogItem(kMedPackItem)) {
+                grantRewardItem(kMedPackItem);
+            }
+            appendAbilityNote(message, messageSize,
+                              "You save Hessa's family cleanly. The Mall announces a closing time and means mercy.");
+        }
+    }
+}
+
+void advancePersonWhoNeverEntered(UiAction action, OutcomeLevel outcome, LeadKind lead, char* message,
+                                  size_t messageSize) {
+    const uint8_t arc = storyIndex(StoryArc::PersonWhoNeverEntered);
+    if (!outcomeHasReward(outcome)) {
+        return;
+    }
+    if (storyStage[arc] == 1 && currentSite == 1 &&
+        (action == UiAction::Observe || lead == LeadKind::Contact || lead == LeadKind::Door)) {
+        storyStage[arc] = 2;
+        appendAbilityNote(message, messageSize,
+                          "The Person Who Never Entered continues: Mink says your face has traffic.");
+        return;
+    }
+    if (storyStage[arc] == 2 && currentSite == 4 &&
+        (lead == LeadKind::Trail || lead == LeadKind::Anomaly || action == UiAction::Explore)) {
+        storyStage[arc] = 3;
+        if (equippedCatalogItem(kRailPistolItem)) {
+            storyOutcome[arc] = 0;
+            siteAttention[1] = siteAttention[1] > 2 ? static_cast<uint8_t>(siteAttention[1] - 2) : 0;
+            if (!hasCatalogItem(kBorrowedShadowItem)) {
+                grantRewardItem(kBorrowedShadowItem);
+            }
+            appendAbilityNote(message, messageSize,
+                              "You erase the Other Runner. By dawn, the cameras remember less.");
+        } else if (equippedCatalogItem(kNullCharmItem) || equippedCatalogItem(kBorrowedShadowItem)) {
+            storyOutcome[arc] = 1;
+            appendAbilityNote(message, messageSize,
+                              "You bargain with the Other Runner. Your shadow learns the clinic route.");
+        } else if (equippedCatalogItem(kEmptyNameTagItem) || equippedCatalogItem(kDebtCollectorsCoatItem)) {
+            storyOutcome[arc] = 2;
+            siteIntel[1] = kMaxSiteIntel;
+            appendAbilityNote(message, messageSize,
+                              "You trade identities. Nobody can prove you are you, which is almost freedom.");
+        } else {
+            storyOutcome[arc] = 3;
+            grantTradeGoods(12);
+            siteAttention[1] = clampInt(siteAttention[1] + 3, 0, kMaxSiteAttention);
+            appendAbilityNote(message, messageSize,
+                              "You sell the duplicate. By morning, three people have bought your face.");
+        }
+    }
+}
+
+void advanceStoryArcs(UiAction action, OutcomeLevel outcome, LeadKind lead, char* message, size_t messageSize) {
+    advanceBatteriesForDead(action, outcome, lead, message, messageSize);
+    advanceLastSaleAtB2(action, outcome, lead, message, messageSize);
+    advancePersonWhoNeverEntered(action, outcome, lead, message, messageSize);
+}
+
 // Resolves observe, explore, and lead actions through one risk/reward pipeline.
 void resolveFieldAction(UiAction action) {
     if (!fieldActionAvailable(action)) {
@@ -1457,6 +2075,8 @@ void resolveFieldAction(UiAction action) {
     const Stats stats = deriveStats();
     const Site& site = sites[currentSite];
     const LeadKind lead = siteLead[currentSite];
+    char actionTitle[24];
+    snprintf(actionTitle, sizeof(actionTitle), "%s", actionLabel(action));
     const int16_t skill = actionSkill(action, stats);
     const int16_t target = actionTarget(action);
     const int16_t total = skill + random(1, 7);
@@ -1468,6 +2088,10 @@ void resolveFieldAction(UiAction action) {
     bool railForced = false;
     bool quietSaved = false;
     bool lensGhost = false;
+    bool rainKeyOpened = false;
+    bool deadPagerCall = false;
+    bool apologySaved = false;
+    bool sirenSaved = false;
     if (outcome == OutcomeLevel::Failure && action == UiAction::Explore && equippedCatalogItem(kRailPistolItem) &&
         !railPistolSpent) {
         outcome = OutcomeLevel::Success;
@@ -1475,6 +2099,13 @@ void resolveFieldAction(UiAction action) {
         railForced = true;
         appendAbilityNote(abilityNote, sizeof(abilityNote),
                           "The Rail Pistol gives a bright answer; the district writes down the question.");
+    }
+    if (action == UiAction::FollowLead && lead == LeadKind::Door && equippedCatalogItem(kRainKeyItem) &&
+        !rainKeySpent && outcome != OutcomeLevel::Full) {
+        outcome = OutcomeLevel::Success;
+        rainKeySpent = true;
+        rainKeyOpened = true;
+        appendAbilityNote(abilityNote, sizeof(abilityNote), "The Rain Key opens what has not been built yet.");
     }
     if (outcome == OutcomeLevel::Failure && action == UiAction::FollowLead &&
         (lead == LeadKind::Door || lead == LeadKind::Contact) && equippedCatalogItem(kQuietNailgunItem) &&
@@ -1485,6 +2116,20 @@ void resolveFieldAction(UiAction action) {
         appendAbilityNote(abilityNote, sizeof(abilityNote),
                           "The Quiet Nailgun turns failure into a close, ugly partial.");
     }
+    if (outcome == OutcomeLevel::Failure && action == UiAction::FollowLead && lead == LeadKind::Contact &&
+        equippedCatalogItem(kApologyEngineItem) && !apologyEngineSpent) {
+        outcome = OutcomeLevel::Partial;
+        apologyEngineSpent = true;
+        apologySaved = true;
+        appendAbilityNote(abilityNote, sizeof(abilityNote), "The Apology Engine spends your leverage before you can.");
+    }
+    if (outcome == OutcomeLevel::Failure && action == UiAction::FollowLead && lead == LeadKind::Contact &&
+        equippedCatalogItem(kMercySirenItem) && !mercySirenSpent) {
+        outcome = OutcomeLevel::Partial;
+        mercySirenSpent = true;
+        sirenSaved = true;
+        appendAbilityNote(abilityNote, sizeof(abilityNote), "The Mercy Siren reminds everyone to step away.");
+    }
     if (outcome == OutcomeLevel::Failure && action == UiAction::Observe && equippedCatalogItem(kMourningLensItem) &&
         !mourningLensSpent) {
         outcome = OutcomeLevel::Partial;
@@ -1492,6 +2137,13 @@ void resolveFieldAction(UiAction action) {
         lensGhost = true;
         appendAbilityNote(abilityNote, sizeof(abilityNote),
                           "The Mourning Lens keeps the failed observation as a ghost lead.");
+    }
+    if (outcome == OutcomeLevel::Failure && action == UiAction::Observe && equippedCatalogItem(kDeadPagerItem) &&
+        !deadPagerSpent) {
+        outcome = OutcomeLevel::Partial;
+        deadPagerSpent = true;
+        deadPagerCall = true;
+        appendAbilityNote(abilityNote, sizeof(abilityNote), "The Dead Pager answers failure with a contact number.");
     }
 
     const bool rewardOutcome = outcomeHasReward(outcome);
@@ -1507,8 +2159,30 @@ void resolveFieldAction(UiAction action) {
     if (quietSaved) {
         attentionGain = clampInt(attentionGain + 1, 0, kMaxSiteAttention);
     }
+    if (rainKeyOpened) {
+        attentionGain = clampInt(attentionGain + 2, 0, kMaxSiteAttention);
+    }
+    if (apologySaved) {
+        attentionGain = clampInt(attentionGain - 1, 0, kMaxSiteAttention);
+    }
+    if (sirenSaved) {
+        attentionGain = clampInt(attentionGain + 2, 0, kMaxSiteAttention);
+    }
     if (lensGhost) {
         ambientDose = clampInt(ambientDose + 1, 0, 6);
+    }
+    if (action == UiAction::Observe && outcome == OutcomeLevel::Failure && equippedCatalogItem(kStaticBridalVeilItem) &&
+        !staticVeilSpent) {
+        staticVeilSpent = true;
+        attentionGain = 0;
+        ambientDose = clampInt(ambientDose + 1, 0, 6);
+        appendAbilityNote(abilityNote, sizeof(abilityNote), "The Static Bridal Veil takes the failed camera heat as strain.");
+    }
+    if (attentionGain > 0 && !borrowedShadowSpent && equippedCatalogItem(kBorrowedShadowItem) &&
+        (action == UiAction::Observe || (action == UiAction::FollowLead && lead == LeadKind::Contact))) {
+        borrowedShadowSpent = true;
+        attentionGain = 0;
+        appendAbilityNote(abilityNote, sizeof(abilityNote), "The Borrowed Shadow stands where you should have been seen.");
     }
     if (attentionGain > 0 && equippedCatalogItem(kNullCharmItem) && !nullCharmSpent[currentSite]) {
         nullCharmSpent[currentSite] = true;
@@ -1521,13 +2195,27 @@ void resolveFieldAction(UiAction action) {
     siteAttention[currentSite] = clampInt(siteAttention[currentSite] + attentionGain, 0, kMaxSiteAttention);
 
     char message[320];
+    bool keepLeadAfterFollow = false;
     if (action == UiAction::Observe) {
         if (rewardOutcome) {
-            const LeadKind foundLead = randomLeadForSite(currentSite);
+            LeadKind foundLead = deadPagerCall ? LeadKind::Contact : randomLeadForSite(currentSite);
+            if (currentSite == 3 && equippedCatalogItem(kCopperToothRadioItem) && outcome == OutcomeLevel::Full &&
+                random(0, 100) < 60) {
+                foundLead = random(0, 100) < 50 ? LeadKind::Trail : LeadKind::Anomaly;
+            }
+            if (currentSite == 4 && equippedCatalogItem(kBoneTuningForkItem) && random(0, 100) < 45) {
+                foundLead = LeadKind::Trail;
+            }
+            if (equippedCatalogItem(kBlackReedSeedItem) && random(0, 100) < 30) {
+                foundLead = LeadKind::Trail;
+            }
             const uint8_t gainValue = outcome == OutcomeLevel::Partial ? 0 : random(0, 2);
             siteLead[currentSite] = foundLead;
             siteIntel[currentSite] =
                 clampInt(siteIntel[currentSite] + (outcome == OutcomeLevel::Partial ? 0 : 1), 0, kMaxSiteIntel);
+            if (equippedCatalogItem(kSignalChalkItem) && outcome != OutcomeLevel::Partial) {
+                signalChalkMark[currentSite] = true;
+            }
             if (gainValue > 0) {
                 grantTradeGoods(static_cast<uint8_t>(gainValue + 2));
             }
@@ -1554,6 +2242,13 @@ void resolveFieldAction(UiAction action) {
             if (outcome == OutcomeLevel::Full) {
                 gain = static_cast<uint8_t>(gain + 2);
             }
+            if (currentSite == 1 && equippedCatalogItem(kTollHammerItem)) {
+                gain = static_cast<uint8_t>(gain + 2);
+            }
+            if (currentSite == 2 &&
+                (equippedCatalogItem(kDrownedRegisterItem) || equippedCatalogItem(kCheckoutOracleItem))) {
+                gain = static_cast<uint8_t>(gain + 1);
+            }
             grantTradeGoods(gain);
             if (siteLead[currentSite] == LeadKind::None && random(0, 100) < 55) {
                 const LeadKind foundLead = randomLeadForSite(currentSite);
@@ -1565,7 +2260,12 @@ void resolveFieldAction(UiAction action) {
             } else {
                 const uint8_t itemId = randomLootForAction(action);
                 const bool duplicate = hasCatalogItem(itemId) && itemCatalog[itemId].use.kind != ItemUseKind::Consume;
-                if (!duplicate && random(0, 100) < 58) {
+                uint8_t itemChance = 58;
+                if (currentSite == 2 &&
+                    (equippedCatalogItem(kDrownedRegisterItem) || equippedCatalogItem(kCheckoutOracleItem))) {
+                    itemChance = 76;
+                }
+                if (!duplicate && random(0, 100) < itemChance) {
                     grantRewardItem(itemId);
                     snprintf(message, sizeof(message),
                              "You push through %s. %s %d/%d %s. Goods worth about %d and %s.",
@@ -1580,8 +2280,30 @@ void resolveFieldAction(UiAction action) {
                 }
             }
         } else {
-            const int16_t wound = 1 + effectiveRiskForSite(currentSite) / 5;
-            const int16_t dose = 1 + effectiveRiskForSite(currentSite) / 3;
+            int16_t wound = 1 + effectiveRiskForSite(currentSite) / 5;
+            int16_t dose = 1 + effectiveRiskForSite(currentSite) / 3;
+            if (equippedCatalogItem(kRoadworkerHuskItem) || equippedCatalogItem(kRivetSaintItem)) {
+                wound = clampInt(wound - 1, 0, 4);
+                appendAbilityNote(abilityNote, sizeof(abilityNote), "The heavy kit turns a bad hit into bruising paperwork.");
+            }
+            if (equippedCatalogItem(kTarTapeRollItem) && !tarTapeSpent[currentSite]) {
+                tarTapeSpent[currentSite] = true;
+                dose = clampInt(dose - 1, 0, 6);
+                appendAbilityNote(abilityNote, sizeof(abilityNote), "Tar Tape seals the leak long enough to blame you later.");
+            }
+            if (equippedCatalogItem(kPulseStaplerItem) && availableTradeValue() >= 2 && wound > 0) {
+                payTradeValue(2);
+                --wound;
+                exposure = clampInt(exposure + 1, 0, kMaxExposure);
+                appendAbilityNote(abilityNote, sizeof(abilityNote),
+                                  "The Pulse Stapler spends goods to close the wound, then hums under skin.");
+            }
+            if (cheapCourageReady && wound > 0) {
+                --wound;
+                cheapCourageReady = false;
+                appendAbilityNote(abilityNote, sizeof(abilityNote),
+                                  "Cheap Courage ignores the first hurt and leaves the bill for later.");
+            }
             health = clampInt(health - wound, 0, kMaxHealth);
             exposure = clampInt(exposure + dose, 0, kMaxExposure);
             snprintf(message, sizeof(message),
@@ -1600,6 +2322,15 @@ void resolveFieldAction(UiAction action) {
             }
 
             if (lead == LeadKind::Contact) {
+                if (equippedCatalogItem(kCivicBatonItem)) {
+                    gain += 2;
+                }
+                if (equippedCatalogItem(kRedactedPhotographItem) && outcome != OutcomeLevel::Partial) {
+                    siteIntel[currentSite] = clampInt(siteIntel[currentSite] + 1, 0, kMaxSiteIntel);
+                }
+                if (apologySaved) {
+                    gain = clampInt(gain - 2, 1, 99);
+                }
                 siteIntel[currentSite] =
                     clampInt(siteIntel[currentSite] + (outcome == OutcomeLevel::Partial ? 0 : 1), 0, kMaxSiteIntel);
                 grantTradeGoods(static_cast<uint8_t>(gain));
@@ -1614,6 +2345,12 @@ void resolveFieldAction(UiAction action) {
                 siteAttention[currentSite] =
                     siteAttention[currentSite] > 2 ? static_cast<uint8_t>(siteAttention[currentSite] - 3) : 0;
                 exposure = clampInt(exposure - 1, 0, kMaxExposure);
+                if (equippedCatalogItem(kMapScalpelItem) && siteIntel[currentSite] > 0 && outcome == OutcomeLevel::Full) {
+                    siteIntel[currentSite] = static_cast<uint8_t>(siteIntel[currentSite] - 1);
+                    signalChalkMark[currentSite] = true;
+                    appendAbilityNote(abilityNote, sizeof(abilityNote),
+                                      "The Map Scalpel cuts one intel into a temporary shortcut.");
+                }
                 snprintf(message, sizeof(message),
                          "You trace the cleaner footpath. %s %d/%d %s. Attention drops, exposure drops.",
                          actionCheckText(action), total, target, outcomeName(outcome));
@@ -1626,8 +2363,29 @@ void resolveFieldAction(UiAction action) {
                 if (lead == LeadKind::Anomaly) {
                     exposure = clampInt(exposure + 1, 0, kMaxExposure);
                     gain += 2;
+                    if (blackIodineGuard) {
+                        exposure = clampInt(exposure - 1, 0, kMaxExposure);
+                        blackIodineGuard = false;
+                        appendAbilityNote(abilityNote, sizeof(abilityNote),
+                                          "Black Iodine catches the bonus exposure before it reaches your bones.");
+                    }
                 } else if (lead == LeadKind::Door) {
                     gain += 3;
+                    if (equippedCatalogItem(kServiceWormItem) && outcome == OutcomeLevel::Full) {
+                        siteLead[currentSite] = LeadKind::Cache;
+                        keepLeadAfterFollow = true;
+                        appendAbilityNote(abilityNote, sizeof(abilityNote),
+                                          "The Service Worm finds a cache behind the bypass.");
+                    }
+                    if (currentSite == 2 && equippedCatalogItem(kTenthButtonItem) && outcome != OutcomeLevel::Partial &&
+                        random(0, 100) < 45) {
+                        grantRewardItem(random(0, 100) < 50 ? kWhiteReceiptItem : kDrownedRegisterItem);
+                        appendAbilityNote(abilityNote, sizeof(abilityNote),
+                                          "The Tenth Button opens a lower-floor cache that the map denies.");
+                    }
+                } else if (lead == LeadKind::Cache && currentSite == 2 &&
+                           (equippedCatalogItem(kFloodChoirWadersItem) || equippedCatalogItem(kDrownedRegisterItem))) {
+                    gain += 2;
                 }
                 if (!duplicate || itemCatalog[itemId].use.kind == ItemUseKind::Consume) {
                     grantTradeGoods(static_cast<uint8_t>(gain));
@@ -1643,13 +2401,45 @@ void resolveFieldAction(UiAction action) {
                              outcomeName(outcome), gain);
                 }
             }
-            siteLead[currentSite] = LeadKind::None;
+            if (!keepLeadAfterFollow) {
+                siteLead[currentSite] = LeadKind::None;
+            }
         } else {
-            const int16_t wound = lead == LeadKind::Contact || lead == LeadKind::Trail ? 1 : 2;
-            const int16_t dose = lead == LeadKind::Anomaly ? 3 : 1 + effectiveRiskForSite(currentSite) / 4;
+            int16_t wound = lead == LeadKind::Contact || lead == LeadKind::Trail ? 1 : 2;
+            int16_t dose = lead == LeadKind::Anomaly ? 3 : 1 + effectiveRiskForSite(currentSite) / 4;
+            if (lead == LeadKind::Trail && equippedCatalogItem(kFlareHookItem) && !flareHookSpent) {
+                flareHookSpent = true;
+                wound = 0;
+                currentSite = 0;
+                appendAbilityNote(abilityNote, sizeof(abilityNote),
+                                  "The Flare Hook turns the bad trail into a forced retreat instead of a wound.");
+            }
+            if ((lead == LeadKind::Cache || lead == LeadKind::Door) && equippedCatalogItem(kTarTapeRollItem) &&
+                !tarTapeSpent[currentSite]) {
+                tarTapeSpent[currentSite] = true;
+                dose = clampInt(dose - 1, 0, 6);
+                appendAbilityNote(abilityNote, sizeof(abilityNote), "Tar Tape seals one dirty consequence.");
+            }
+            if ((lead == LeadKind::Contact || lead == LeadKind::Door) && equippedCatalogItem(kStaticKnifeItem)) {
+                wound = clampInt(wound - 1, 0, 4);
+                exposure = clampInt(exposure + 1, 0, kMaxExposure);
+                appendAbilityNote(abilityNote, sizeof(abilityNote),
+                                  "The Static Knife takes the mistake as buzzing strain instead of blood.");
+            }
+            if (lead == LeadKind::Anomaly && equippedCatalogItem(kColdLanternItem)) {
+                dose = clampInt(dose - 1, 0, 6);
+                appendAbilityNote(abilityNote, sizeof(abilityNote),
+                                  "The Cold Lantern shows which part of the wrong-light not to breathe.");
+            }
+            if (lead == LeadKind::Contact && equippedCatalogItem(kRedactedPhotographItem)) {
+                siteLead[currentSite] = LeadKind::Anomaly;
+                appendAbilityNote(abilityNote, sizeof(abilityNote),
+                                  "The Redacted Photograph turns the failed contact into something stranger.");
+            } else {
+                siteLead[currentSite] = LeadKind::None;
+            }
             health = clampInt(health - wound, 0, kMaxHealth);
             exposure = clampInt(exposure + dose, 0, kMaxExposure);
-            siteLead[currentSite] = LeadKind::None;
             snprintf(message, sizeof(message),
                      "The %s turns bad. %s %d/%d. Lead lost, attention +%u, -%d body, +%d exposure.",
                      leadName(lead), actionCheckText(action), total, target, attentionGain, wound, dose);
@@ -1659,6 +2449,19 @@ void resolveFieldAction(UiAction action) {
     }
 
     uint8_t spentTicks = actionTimeCost(action);
+    if (action == UiAction::Observe && sleeplessMintReady && spentTicks > 0) {
+        --spentTicks;
+        sleeplessMintReady = false;
+        appendAbilityNote(abilityNote, sizeof(abilityNote), "Sleepless Mint steals the hour before it lands.");
+    }
+    if (action == UiAction::Explore && currentSite == 2 && equippedCatalogItem(kDrownedRegisterItem)) {
+        ++spentTicks;
+        appendAbilityNote(abilityNote, sizeof(abilityNote), "The Drowned Register adds a slow, wet checkout.");
+    }
+    if (action == UiAction::Explore && equippedCatalogItem(kAshfallPonchoItem) && !ashfallPonchoSpent[currentSite]) {
+        ashfallPonchoSpent[currentSite] = true;
+        appendAbilityNote(abilityNote, sizeof(abilityNote), "The Ashfall Poncho spends its one clean shrug for this site.");
+    }
     if (rewardOutcome && actionUsesTech(action, lead) && equippedCatalogItem(kWarmBatteryItem) && !warmBatterySpent &&
         spentTicks > 0) {
         --spentTicks;
@@ -1666,8 +2469,24 @@ void resolveFieldAction(UiAction action) {
         appendAbilityNote(abilityNote, sizeof(abilityNote),
                           "The Warm Battery refunds an hour that should have been gone.");
     }
+    if (action == UiAction::Explore && cheapCourageReady) {
+        cheapCourageReady = false;
+    }
+    if (action == UiAction::FollowLead && lead == LeadKind::Trail && fenceSaltReady) {
+        fenceSaltReady = false;
+    }
+    if (action == UiAction::FollowLead && blackIodineGuard && lead == LeadKind::Anomaly) {
+        blackIodineGuard = false;
+    }
+    if (action == UiAction::FollowLead && ghostTeaApplies(lead)) {
+        ghostTeaSite = 255;
+    }
+    if (blueMilkBlurReady) {
+        blueMilkBlurReady = false;
+    }
+    advanceStoryArcs(action, outcome, lead, message, sizeof(message));
     appendAbilityNote(message, sizeof(message), abilityNote);
-    snprintf(rewardTitle, sizeof(rewardTitle), "%s Complete", actionLabel(action));
+    snprintf(rewardTitle, sizeof(rewardTitle), "%s Complete", actionTitle);
     snprintf(rewardSummary, sizeof(rewardSummary), "%s", message);
     setStatus(message);
     spendTime(spentTicks);
@@ -1694,7 +2513,22 @@ void travelToSite(uint8_t targetSite) {
         return;
     }
 
-    const int16_t routeDose = routeExposureCost(targetSite, stats);
+    int16_t routeDose = routeExposureCost(targetSite, stats);
+    char routeNote[140] = "";
+    if (equippedCatalogItem(kCalendarOfRainsItem) && !calendarSpent && routeDose > 0) {
+        calendarSpent = true;
+        const int16_t reroll = clampInt(routeDose + random(-1, 3), 0, 4);
+        routeDose = reroll;
+        appendAbilityNote(routeNote, sizeof(routeNote), "Calendar of Rains makes the forecast binding.");
+    }
+    if (signalChalkMark[targetSite]) {
+        signalChalkMark[targetSite] = false;
+        appendAbilityNote(routeNote, sizeof(routeNote), "Signal Chalk mark washes into the tires.");
+    }
+    if (fenceSaltReady) {
+        fenceSaltReady = false;
+        appendAbilityNote(routeNote, sizeof(routeNote), "Fence Runner's Salt keeps the route heat slippery.");
+    }
     currentSite = targetSite;
     selectedMapSite = targetSite;
     if (currentSite != 0) {
@@ -1704,9 +2538,13 @@ void travelToSite(uint8_t targetSite) {
     }
 
     char message[160];
-    snprintf(message, sizeof(message), "You trust the signal map and ride %uh to %s. Route dose +%d. Risk now %d.",
+    if (equippedCatalogItem(kRoadworkerHuskItem) && (targetSite == 1 || targetSite == 3)) {
+        siteAttention[targetSite] = clampInt(siteAttention[targetSite] + 1, 0, kMaxSiteAttention);
+    }
+
+    snprintf(message, sizeof(message), "You trust the signal map and ride %uh to %s. Route dose +%d. Risk now %d. %s",
              static_cast<unsigned>(travelTicks * kTickHours), sites[currentSite].name, routeDose,
-             effectiveRiskForSite(currentSite));
+             effectiveRiskForSite(currentSite), routeNote);
     setStatus(message);
     currentScreen = Screen::Field;
     spendTime(travelTicks);
@@ -2923,6 +3761,22 @@ void initializeGame() {
     quietNailgunSpent = false;
     mourningLensSpent = false;
     copperSaintSpent = false;
+    staticVeilSpent = false;
+    debtCoatSpent = false;
+    deadPagerSpent = false;
+    rainKeySpent = false;
+    flareHookSpent = false;
+    mercySirenSpent = false;
+    apologyEngineSpent = false;
+    borrowedShadowSpent = false;
+    mercyBellSpent = false;
+    calendarSpent = false;
+    ghostTeaSite = 255;
+    blackIodineGuard = false;
+    sleeplessMintReady = false;
+    fenceSaltReady = false;
+    cheapCourageReady = false;
+    blueMilkBlurReady = false;
     for (uint8_t i = 0; i < kInventoryCapacity; ++i) {
         inventory[i] = -1;
         tradeOfferSelected[i] = false;
@@ -2941,6 +3795,13 @@ void initializeGame() {
     }
     for (uint8_t i = 0; i < kSiteCapacity; ++i) {
         nullCharmSpent[i] = false;
+        ashfallPonchoSpent[i] = false;
+        tarTapeSpent[i] = false;
+        signalChalkMark[i] = false;
+    }
+    for (uint8_t i = 0; i < static_cast<uint8_t>(StoryArc::Count); ++i) {
+        storyStage[i] = 0;
+        storyOutcome[i] = 0;
     }
 
     inventory[0] = 0;
