@@ -94,6 +94,18 @@ constexpr uint8_t kCopperSaintItem = 14;
 
 enum class OutcomeLevel : uint8_t { Failure, Partial, Success, Full };
 enum class StoryArc : uint8_t { BatteriesForTheDead, LastSaleAtB2, PersonWhoNeverEntered, Count };
+enum class DawnOfferKind : uint8_t { Work, Rumour, Greed };
+
+struct DawnOffer {
+    DawnOfferKind kind = DawnOfferKind::Work;
+    uint8_t site = 0;
+    LeadKind lead = LeadKind::None;
+    uint8_t rewardBiasItem = 0;
+    int8_t riskDelta = 0;
+    bool active = false;
+    const char* title = "";
+    char hook[132] = "";
+};
 
 // Runtime state is intentionally plain globals because the Arduino loop is a
 // single-scene program and redraws from this state directly.
@@ -118,6 +130,7 @@ bool tradeOfferSelected[kInventoryCapacity];
 bool tradeWantSelected[kTradeStockCount];
 uint8_t rewardItems[kMaxRewardItems];
 uint8_t rewardCount = 0;
+DawnOffer dawnOffers[3];
 Button buttons[kMaxButtons];
 uint8_t buttonCount = 0;
 bool screenDirty = true;
@@ -153,6 +166,7 @@ StoryArc pendingStoryArc = StoryArc::Count;
 char statusLine[320] = "The rain tastes metallic. Your kit is the only thing between you and the quiet.";
 char rewardTitle[80] = "";
 char rewardSummary[320] = "";
+char rewardNext[180] = "";
 char dialogueTitle[80] = "";
 char dialogueBody[360] = "";
 bool dialogueQueued = false;
@@ -693,6 +707,17 @@ bool outcomeHasReward(OutcomeLevel outcome) {
     return outcome != OutcomeLevel::Failure;
 }
 
+uint8_t chanceForThreshold(int16_t skill, int16_t target) {
+    const int16_t needed = target - skill;
+    if (needed <= 1) {
+        return 100;
+    }
+    if (needed > 6) {
+        return 0;
+    }
+    return static_cast<uint8_t>((7 - needed) * 100 / 6);
+}
+
 const char* outcomeName(OutcomeLevel outcome) {
     switch (outcome) {
         case OutcomeLevel::Full:
@@ -1047,6 +1072,95 @@ LeadKind randomLeadForSite(uint8_t siteIndex) {
     return LeadKind::None;
 }
 
+const char* dawnOfferKindName(DawnOfferKind kind) {
+    switch (kind) {
+        case DawnOfferKind::Work:
+            return "Work";
+        case DawnOfferKind::Rumour:
+            return "Rumour";
+        case DawnOfferKind::Greed:
+            return "Greed";
+    }
+    return "Offer";
+}
+
+uint16_t dawnOfferColor(DawnOfferKind kind) {
+    switch (kind) {
+        case DawnOfferKind::Work:
+            return rgb(120, 220, 160);
+        case DawnOfferKind::Rumour:
+            return rgb(130, 230, 220);
+        case DawnOfferKind::Greed:
+            return rgb(230, 180, 70);
+    }
+    return rgb(130, 230, 200);
+}
+
+uint8_t nextRumourSite() {
+    if (storyStage[storyIndex(StoryArc::BatteriesForTheDead)] == 0) {
+        return 3;
+    }
+    if (storyStage[storyIndex(StoryArc::LastSaleAtB2)] == 0) {
+        return 2;
+    }
+    if (storyStage[storyIndex(StoryArc::PersonWhoNeverEntered)] <= 1) {
+        return 1;
+    }
+    return static_cast<uint8_t>(1 + (day % (kSiteCount - 1)));
+}
+
+LeadKind rumourLeadForSite(uint8_t site) {
+    if (site == 3) {
+        return LeadKind::Contact;
+    }
+    if (site == 2) {
+        return LeadKind::Door;
+    }
+    if (site == 1) {
+        return LeadKind::Contact;
+    }
+    return LeadKind::Trail;
+}
+
+void setDawnOffer(uint8_t index, DawnOfferKind kind, uint8_t site, LeadKind lead, uint8_t rewardBiasItem,
+                  int8_t riskDelta, const char* title, const char* hook) {
+    if (index >= 3) {
+        return;
+    }
+    DawnOffer& offer = dawnOffers[index];
+    offer.kind = kind;
+    offer.site = site;
+    offer.lead = lead;
+    offer.rewardBiasItem = rewardBiasItem;
+    offer.riskDelta = riskDelta;
+    offer.active = true;
+    offer.title = title;
+    snprintf(offer.hook, sizeof(offer.hook), "%s", hook);
+}
+
+void generateDawnOffers() {
+    const uint8_t workSite = static_cast<uint8_t>(1 + ((day + 1) % (kSiteCount - 1)));
+    char workHook[132];
+    snprintf(workHook, sizeof(workHook), "%s needs a quiet supply run. Pay: trade goods and less doubt.",
+             sites[workSite].name);
+    setDawnOffer(0, DawnOfferKind::Work, workSite, LeadKind::Cache, kCleanWaterItem, 0, "Supply Run", workHook);
+
+    const uint8_t rumourSite = nextRumourSite();
+    const LeadKind rumourLead = rumourLeadForSite(rumourSite);
+    char rumourHook[132];
+    snprintf(rumourHook, sizeof(rumourHook), "%s is repeating a story around a %s. Observe or follow it.",
+             sites[rumourSite].name, leadName(rumourLead));
+    setDawnOffer(1, DawnOfferKind::Rumour, rumourSite, rumourLead, kDeadPagerItem, 0, "Unsettled Rumour", rumourHook);
+
+    const uint8_t greedSite = day % 2 == 0 ? 4 : 3;
+    const LeadKind greedLead = greedSite == 4 ? LeadKind::Trail : LeadKind::Anomaly;
+    const uint8_t greedItem = greedSite == 4 ? kBlackReedSeedItem : kWhiteReceiptItem;
+    char greedHook[132];
+    snprintf(greedHook, sizeof(greedHook), "%s has a costly %s with artifact weather around it.",
+             sites[greedSite].name, leadName(greedLead));
+    setDawnOffer(2, DawnOfferKind::Greed, greedSite, greedLead, greedItem, 1, "Bad Treasure", greedHook);
+}
+
 // Describes the stat check for the field action forecast panel.
 const char* actionCheckText(UiAction action) {
     switch (action) {
@@ -1239,14 +1353,7 @@ int16_t actionExposureCost(UiAction action, const Stats& stats) {
 
 // Converts a stat-vs-target gap into the percentage shown to the player.
 uint8_t successChance(int16_t skill, int16_t target) {
-    const int16_t needed = target - skill;
-    if (needed <= 1) {
-        return 100;
-    }
-    if (needed > 6) {
-        return 0;
-    }
-    return static_cast<uint8_t>((7 - needed) * 100 / 6);
+    return chanceForThreshold(skill, target);
 }
 
 // Checks whether a field action is currently meaningful and affordable.
@@ -1436,6 +1543,7 @@ void clearReward() {
     rewardCount = 0;
     rewardTitle[0] = '\0';
     rewardSummary[0] = '\0';
+    rewardNext[0] = '\0';
 }
 
 // Records a received item so the reward screen can show it with an icon.
@@ -1944,6 +2052,33 @@ void drawPackPreview(int32_t x, int32_t y, int32_t w, int32_t h) {
     }
 }
 
+void drawDawnOfferCards(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t panelBg) {
+    auto& display = M5.Display;
+    display.setFont(&fonts::Font4);
+    drawTextFit("Dawn Offers", x, y, w, rgb(130, 230, 200), panelBg);
+    display.setFont(&fonts::Font2);
+    drawTextFit("The board is optional, but it gives tomorrow a shape.", x, y + 34, w, rgb(150, 168, 170), panelBg);
+
+    const int32_t cardTop = y + 66;
+    const int32_t gap = 8;
+    const int32_t cardH = (h - 66 - gap * 2) / 3;
+    for (uint8_t i = 0; i < 3; ++i) {
+        const DawnOffer& offer = dawnOffers[i];
+        const int32_t cardY = cardTop + i * (cardH + gap);
+        const uint16_t accent = offer.active ? dawnOfferColor(offer.kind) : rgb(72, 82, 84);
+        const uint16_t cardBg = offer.active ? rgb(12, 18, 24) : rgb(12, 14, 16);
+        display.fillRoundRect(x, cardY, w, cardH, 6, cardBg);
+        display.drawRoundRect(x, cardY, w, cardH, 6, accent);
+        display.fillRect(x + 10, cardY + 10, 7, cardH - 20, accent);
+        drawFormattedTextFit(x + 26, cardY + 10, w - 52, offer.active ? TFT_WHITE : rgb(120, 126, 128), cardBg,
+                             "%s: %s", dawnOfferKindName(offer.kind), offer.title);
+        drawFormattedTextFit(x + 26, cardY + 32, w - 52, rgb(150, 168, 170), cardBg, "%s / %s",
+                             sites[offer.site].name, leadName(offer.lead));
+        drawWrappedText(offer.active ? offer.hook : "Resolved. The board slot is quiet.", x + 26, cardY + 54, w - 52,
+                        2, offer.active ? rgb(190, 208, 204) : rgb(110, 116, 118), cardBg);
+    }
+}
+
 // Draws action outcomes before the player commits time and risk.
 void drawActionForecast(int32_t x, int32_t y, int32_t w, int32_t h) {
     auto& display = M5.Display;
@@ -1954,6 +2089,10 @@ void drawActionForecast(int32_t x, int32_t y, int32_t w, int32_t h) {
     drawPanel(x, y, w, h, rgb(190, 70, 150));
     display.setFont(&fonts::Font4);
     drawTextFit("Field Read", x + 14, y + 12, w - 28, TFT_WHITE, bg);
+    if (currentSite == 0) {
+        drawDawnOfferCards(x + 16, y + 56, w - 32, h - 76, bg);
+        return;
+    }
 
     display.setFont(&fonts::Font2);
     drawFormattedTextFit(x + 16, y + 48, w - 32, rgb(150, 168, 170), bg,
@@ -1967,25 +2106,33 @@ void drawActionForecast(int32_t x, int32_t y, int32_t w, int32_t h) {
 
     for (uint8_t i = 0; i < 3; ++i) {
         const UiAction action = actions[i];
-        const int32_t rowY = y + 134 + i * 58;
+        const int32_t rowY = y + 126 + i * 96;
         const bool enabled = fieldActionAvailable(action);
         const uint16_t rowBg = enabled ? rgb(12, 18, 24) : rgb(16, 16, 18);
         const uint16_t border = enabled ? rgb(90, 210, 220) : rgb(58, 58, 62);
         const int16_t skill = actionSkill(action, stats);
         const int16_t target = actionTarget(action);
-        const uint8_t chance = successChance(skill, target);
+        const uint8_t cleanChance = chanceForThreshold(skill, target + 3);
+        const uint8_t safeChance = chanceForThreshold(skill, target);
+        const uint8_t partialChance = chanceForThreshold(skill, target - 2);
+        char abilityPreview[220];
+        describeActionAbilities(action, siteLead[currentSite], abilityPreview, sizeof(abilityPreview));
 
-        display.fillRoundRect(x + 14, rowY, w - 28, 52, 6, rowBg);
-        display.drawRoundRect(x + 14, rowY, w - 28, 52, 6, border);
+        display.fillRoundRect(x + 14, rowY, w - 28, 86, 6, rowBg);
+        display.drawRoundRect(x + 14, rowY, w - 28, 86, 6, border);
         drawTextFit(actionLabel(action), x + 26, rowY + 8, 84, enabled ? TFT_WHITE : rgb(110, 115, 120), rowBg);
-        drawFormattedTextFit(x + 118, rowY + 8, w - 144, enabled ? rgb(180, 210, 205) : rgb(95, 100, 102), rowBg,
+        drawFormattedTextFit(x + 116, rowY + 8, w - 142, enabled ? rgb(180, 210, 205) : rgb(95, 100, 102), rowBg,
                              "%s %d/%d", actionCheckText(action), skill, target);
-        drawFormattedTextFit(x + 26, rowY + 28, 132, enabled ? rgb(180, 210, 205) : rgb(95, 100, 102), rowBg,
-                             "%u%%  %uh  dose +%d", chance,
+        drawFormattedTextFit(x + 26, rowY + 30, w - 52, enabled ? rgb(180, 210, 205) : rgb(95, 100, 102), rowBg,
+                             "clean %u%%  safe %u%%  partial %u%%", cleanChance, safeChance, partialChance);
+        drawFormattedTextFit(x + 26, rowY + 50, 132, enabled ? rgb(180, 210, 205) : rgb(95, 100, 102), rowBg,
+                             "%uh  dose +%d",
                              static_cast<unsigned>(actionTimeCost(action) * kTickHours),
                              actionExposureCost(action, stats));
-        drawTextFit(enabled ? actionPayoffText(action) : actionBlockedText(action), x + 168, rowY + 28, w - 196,
+        drawTextFit(enabled ? actionPayoffText(action) : actionBlockedText(action), x + 168, rowY + 50, w - 196,
                     enabled ? rgb(180, 210, 205) : rgb(95, 100, 102), rowBg);
+        drawTextFit(abilityPreview[0] != '\0' ? abilityPreview : "No special kit interaction visible.", x + 26,
+                    rowY + 68, w - 52, enabled ? rgb(150, 188, 184) : rgb(95, 100, 102), rowBg);
     }
 }
 
@@ -2095,6 +2242,100 @@ uint8_t actionAttentionGain(UiAction action, bool success) {
     }
     return static_cast<uint8_t>(clampInt(gain + abilityAttentionDelta(action, siteLead[currentSite], success), 0,
                                          kMaxSiteAttention));
+}
+
+int8_t matchingDawnOffer(UiAction action, LeadKind lead) {
+    for (uint8_t i = 0; i < 3; ++i) {
+        const DawnOffer& offer = dawnOffers[i];
+        if (!offer.active || offer.site != currentSite) {
+            continue;
+        }
+        if (action == UiAction::Observe && offer.kind == DawnOfferKind::Rumour) {
+            return static_cast<int8_t>(i);
+        }
+        if (action == UiAction::Explore && offer.kind != DawnOfferKind::Rumour) {
+            return static_cast<int8_t>(i);
+        }
+        if (action == UiAction::FollowLead && (offer.lead == lead || offer.lead == LeadKind::None)) {
+            return static_cast<int8_t>(i);
+        }
+    }
+    return -1;
+}
+
+void applyDawnOfferReward(UiAction action, OutcomeLevel outcome, LeadKind lead, char* message, size_t messageSize) {
+    if (!outcomeHasReward(outcome)) {
+        return;
+    }
+    const int8_t match = matchingDawnOffer(action, lead);
+    if (match < 0) {
+        return;
+    }
+
+    DawnOffer& offer = dawnOffers[match];
+    offer.active = false;
+    if (offer.kind == DawnOfferKind::Work) {
+        grantTradeGoods(3);
+        appendAbilityNote(message, messageSize, "Dawn offer paid: the clinic board job adds trade goods.");
+    } else if (offer.kind == DawnOfferKind::Rumour) {
+        siteIntel[currentSite] = clampInt(siteIntel[currentSite] + 1, 0, kMaxSiteIntel);
+        appendAbilityNote(message, messageSize, "Dawn rumour sharpened: site intel rises and the board quiets.");
+    } else {
+        if (outcome == OutcomeLevel::Full || outcome == OutcomeLevel::Success) {
+            grantRewardItem(offer.rewardBiasItem);
+            appendAbilityNote(message, messageSize, "Greed paid off: the hinted oddity is in your pack.");
+        } else {
+            grantTradeGoods(2);
+            appendAbilityNote(message, messageSize, "Greed half-paid: you recover value, not the promised miracle.");
+        }
+        siteAttention[currentSite] = clampInt(siteAttention[currentSite] + 1 + offer.riskDelta, 0, kMaxSiteAttention);
+    }
+}
+
+void setRewardNextMoveForAction(UiAction action, OutcomeLevel outcome, LeadKind lead) {
+    if (rewardCount > 0) {
+        const Item& item = itemCatalog[rewardItems[rewardCount - 1]];
+        if (item.slot == Slot::Detector) {
+            snprintf(rewardNext, sizeof(rewardNext), "Suggested next: equip %s before Observing a site with hidden leads.",
+                     item.name);
+            return;
+        }
+        if (item.slot == Slot::Tool) {
+            snprintf(rewardNext, sizeof(rewardNext), "Suggested next: take %s to a Door or Cache lead.", item.name);
+            return;
+        }
+        if (item.slot == Slot::Suit) {
+            snprintf(rewardNext, sizeof(rewardNext), "Suggested next: wear %s and choose a route that matches it.",
+                     item.name);
+            return;
+        }
+        if (item.slot == Slot::Artifact) {
+            snprintf(rewardNext, sizeof(rewardNext), "Suggested next: inspect %s; artifacts change tomorrow's plan.",
+                     item.name);
+            return;
+        }
+        if (item.slot == Slot::Consumable) {
+            snprintf(rewardNext, sizeof(rewardNext), "Suggested next: save %s for the site that punishes its weakness.",
+                     item.name);
+            return;
+        }
+        snprintf(rewardNext, sizeof(rewardNext), "Suggested next: trade %s if the clinic bill starts breathing.",
+                 item.name);
+        return;
+    }
+
+    if (action == UiAction::Observe && siteLead[currentSite] != LeadKind::None) {
+        snprintf(rewardNext, sizeof(rewardNext), "Suggested next: follow the %s before dawn clears the trail.",
+                 leadName(siteLead[currentSite]));
+    } else if (outcome == OutcomeLevel::Failure) {
+        snprintf(rewardNext, sizeof(rewardNext), "Suggested next: retreat, trade, or Observe somewhere safer before pushing again.");
+    } else if (action == UiAction::Explore && siteCache[currentSite] == 0) {
+        snprintf(rewardNext, sizeof(rewardNext), "Suggested next: move sites; this cache is dry until the city restocks.");
+    } else if (lead != LeadKind::None) {
+        snprintf(rewardNext, sizeof(rewardNext), "Suggested next: bring kit that favours %s checks.", leadName(lead));
+    } else {
+        snprintf(rewardNext, sizeof(rewardNext), "Suggested next: check the clinic board for tomorrow's offer.");
+    }
 }
 
 // Lowers attention, fades intel, clears leads, and slowly restocks sites overnight.
@@ -2211,6 +2452,8 @@ void startNewDay(const char* lead) {
         appendAbilityNote(message, sizeof(message), note);
         queueDialogue("Clock Slip", note, rgb(230, 180, 70));
     }
+    generateDawnOffers();
+    appendAbilityNote(message, sizeof(message), "The clinic board posts work, rumour, and greed for today.");
     setStatus(message);
 }
 
@@ -2397,6 +2640,7 @@ void completeStoryDecision(uint8_t choice) {
 
     snprintf(rewardTitle, sizeof(rewardTitle), "%s", storyTitle(arc));
     snprintf(rewardSummary, sizeof(rewardSummary), "%s", message);
+    snprintf(rewardNext, sizeof(rewardNext), "Suggested next: check the rumour board; the city's consequences have changed.");
     setStatus(message);
     currentScreen = Screen::Reward;
     screenDirty = true;
@@ -2898,7 +3142,9 @@ void resolveFieldAction(UiAction action) {
     }
     pendingStoryArc = StoryArc::Count;
     advanceStoryArcs(action, outcome, lead, message, sizeof(message));
+    applyDawnOfferReward(action, outcome, lead, message, sizeof(message));
     appendAbilityNote(message, sizeof(message), abilityNote);
+    setRewardNextMoveForAction(action, outcome, lead);
     snprintf(rewardTitle, sizeof(rewardTitle), "%s Complete", actionTitle);
     snprintf(rewardSummary, sizeof(rewardSummary), "%s", message);
     setStatus(message);
@@ -3031,6 +3277,7 @@ void completeTrade() {
     snprintf(rewardTitle, sizeof(rewardTitle), "Trade Complete");
     snprintf(rewardSummary, sizeof(rewardSummary), "You traded goods worth %d for goods worth %d. No one gives change.",
              offer, ask);
+    snprintf(rewardNext, sizeof(rewardNext), "Suggested next: inspect the new goods, then choose a route that uses them.");
     setStatus(rewardSummary);
     resetTradeSelections();
     currentScreen = Screen::Reward;
@@ -4147,12 +4394,15 @@ void drawRewardScreen() {
                 TFT_WHITE, bg);
     drawWrappedText(rewardSummary[0] == '\0' ? statusLine : rewardSummary, margin + 20, top + 58, width - 76, 4,
                     rgb(210, 222, 214), bg);
+    if (rewardNext[0] != '\0') {
+        drawWrappedText(rewardNext, margin + 20, top + 144, width - 76, 2, rgb(130, 230, 200), bg);
+    }
 
     display.setFont(&fonts::Font4);
-    drawTextFit("Received", margin + 20, top + 158, width - 76, rgb(130, 230, 200), bg);
+    drawTextFit("Received", margin + 20, top + 190, width - 76, rgb(130, 230, 200), bg);
     if (rewardCount == 0) {
         display.setFont(&fonts::Font2);
-        drawTextFit("No goods recovered. Sometimes the Zone only pays in information.", margin + 22, top + 204,
+        drawTextFit("No goods recovered. Sometimes the Zone only pays in information.", margin + 22, top + 236,
                     width - 80, rgb(160, 178, 174), bg);
     }
 
@@ -4162,7 +4412,7 @@ void drawRewardScreen() {
         const int32_t col = i % 4;
         const int32_t row = i / 4;
         const int32_t cardX = margin + 20 + col * (cardW + 12);
-        const int32_t cardY = top + 202 + row * 112;
+        const int32_t cardY = top + 234 + row * 112;
         display.fillRoundRect(cardX, cardY, cardW, 96, 6, rgb(12, 18, 22));
         display.drawRoundRect(cardX, cardY, cardW, 96, 6, item.color);
         drawMiniItemIcon(item, cardX + 12, cardY + 16, 56, false);
@@ -4559,6 +4809,7 @@ void initializeGame() {
     equipped[1] = 1;
     equipped[2] = 2;
     equipped[3] = 3;
+    generateDawnOffers();
 }
 
 // TouchState records the current press and edge-triggered first tap.
