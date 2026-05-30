@@ -197,8 +197,8 @@ StoryArc pendingStoryArc = StoryArc::Count;
 char statusLine[320] = "The rain tastes metallic. Your kit is the only thing between you and the quiet.";
 char rewardTitle[80] = "";
 char rewardSummary[320] = "";
-char rewardChanged[220] = "";
-char rewardNext[180] = "";
+char rewardChanged[320] = "";
+char rewardNext[220] = "";
 char dialogueTitle[80] = "";
 char dialogueBody[360] = "";
 bool dialogueQueued = false;
@@ -1188,7 +1188,7 @@ void generateDawnOffers() {
     selectedDawnOffer = -1;
     const uint8_t workSite = static_cast<uint8_t>(1 + ((day + 1) % (kSiteCount - 1)));
     char workHook[132];
-    snprintf(workHook, sizeof(workHook), "%s needs a quiet supply run. Pay: trade goods and less doubt.",
+    snprintf(workHook, sizeof(workHook), "%s needs a quiet supply run. The clinic tray will be kinder.",
              sites[workSite].name);
     setDawnOffer(0, DawnOfferKind::Work, workSite, LeadKind::Cache, kCleanWaterItem, 0, "Supply Run", workHook);
 
@@ -2240,13 +2240,12 @@ void drawPackPreview(int32_t x, int32_t y, int32_t w, int32_t h) {
 void drawDawnOfferCards(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t panelBg) {
     auto& display = M5.Display;
     display.setFont(&fonts::Font4);
-    drawTextFit("Dawn Offers", x, y, w, rgb(130, 230, 200), panelBg);
-    display.setFont(&fonts::Font2);
-    drawTextFit("The board is optional, but it gives tomorrow a shape.", x, y + 34, w, rgb(150, 168, 170), panelBg);
+    drawTextFit("Morning Board", x, y, w, rgb(130, 230, 200), panelBg);
 
-    const int32_t cardTop = y + 66;
+    const int32_t cardTop = y + 48;
     const int32_t gap = 8;
-    const int32_t cardH = (h - 66 - gap * 2) / 3;
+    const int32_t cardH = (h - 48 - gap * 2) / 3;
+    display.setFont(&fonts::Font2);
     for (uint8_t i = 0; i < 3; ++i) {
         const DawnOffer& offer = dawnOffers[i];
         const int32_t cardY = cardTop + i * (cardH + gap);
@@ -2265,7 +2264,7 @@ void drawDawnOfferCards(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t pan
         }
         drawFormattedTextFit(x + 26, cardY + 32, w - 52, rgb(150, 168, 170), cardBg, "%s / %s",
                              sites[offer.site].name, leadName(offer.lead));
-        drawWrappedText(offer.active ? offer.hook : "Resolved. The board slot is quiet.", x + 26, cardY + 54, w - 52,
+        drawWrappedText(offer.active ? offer.hook : "The chalk has gone cold.", x + 26, cardY + 54, w - 52,
                         2, offer.active ? rgb(190, 208, 204) : rgb(110, 116, 118), cardBg);
         addButton("", x, cardY, w, cardH, UiAction::SelectDawnOffer, i, stripe, offer.active, false);
     }
@@ -2326,7 +2325,7 @@ void drawActionForecast(int32_t x, int32_t y, int32_t w, int32_t h) {
                              actionExposureCost(action, stats));
         drawTextFit(enabled ? actionPayoffText(action) : actionBlockedText(action), x + 168, rowY + 50, w - 196,
                     enabled ? rgb(180, 210, 205) : rgb(95, 100, 102), rowBg);
-        drawTextFit(abilityPreview[0] != '\0' ? abilityPreview : "No special kit interaction visible.", x + 26,
+        drawTextFit(abilityPreview[0] != '\0' ? abilityPreview : "The kit stays quiet.", x + 26,
                     rowY + 68, w - 52, enabled ? rgb(150, 188, 184) : rgb(95, 100, 102), rowBg);
         addButton("", x + 14, rowY, w - 28, 86, UiAction::OpenActionDetail, static_cast<int16_t>(action), border,
                   true, false);
@@ -2480,21 +2479,21 @@ void applyDawnOfferReward(UiAction action, OutcomeLevel outcome, LeadKind lead, 
     selectedDawnOffer = -1;
     if (offer.kind == DawnOfferKind::Work) {
         grantTradeGoods(3);
-        appendAbilityNote(message, messageSize, "Dawn offer paid: the clinic board job adds trade goods.");
-        appendAbilityNote(rewardChanged, sizeof(rewardChanged), "Focus paid in trade goods.");
+        appendAbilityNote(message, messageSize, "The clinic board job pays in dry goods and fewer questions.");
+        appendAbilityNote(rewardChanged, sizeof(rewardChanged), "The morning board pays in trade goods.");
     } else if (offer.kind == DawnOfferKind::Rumour) {
         siteIntel[currentSite] = clampInt(siteIntel[currentSite] + 1, 0, kMaxSiteIntel);
-        appendAbilityNote(message, messageSize, "Dawn rumour sharpened: site intel rises and the board quiets.");
-        appendAbilityNote(rewardChanged, sizeof(rewardChanged), "Focus became site intel.");
+        appendAbilityNote(message, messageSize, "The rumour sharpens into a useful mark on the map.");
+        appendAbilityNote(rewardChanged, sizeof(rewardChanged), "The board leaves cleaner intel behind.");
     } else {
         if (outcome == OutcomeLevel::Full || outcome == OutcomeLevel::Success) {
             grantRewardItem(offer.rewardBiasItem);
-            appendAbilityNote(message, messageSize, "Greed paid off: the hinted oddity is in your pack.");
-            appendAbilityNote(rewardChanged, sizeof(rewardChanged), "Focus paid with the hinted oddity.");
+            appendAbilityNote(message, messageSize, "The hinted oddity is real enough to weigh down your pack.");
+            appendAbilityNote(rewardChanged, sizeof(rewardChanged), "The dangerous mark pays with an oddity.");
         } else {
             grantTradeGoods(2);
-            appendAbilityNote(message, messageSize, "Greed half-paid: you recover value, not the promised miracle.");
-            appendAbilityNote(rewardChanged, sizeof(rewardChanged), "Focus paid in fragments instead of a miracle.");
+            appendAbilityNote(message, messageSize, "The miracle slips away, but useful fragments remain.");
+            appendAbilityNote(rewardChanged, sizeof(rewardChanged), "The dangerous mark pays in fragments.");
         }
         siteAttention[currentSite] = clampInt(siteAttention[currentSite] + 1 + offer.riskDelta, 0, kMaxSiteAttention);
     }
@@ -2504,45 +2503,39 @@ void setRewardNextMoveForAction(UiAction action, OutcomeLevel outcome, LeadKind 
     if (rewardCount > 0) {
         const Item& item = itemCatalog[rewardItems[rewardCount - 1]];
         if (item.slot == Slot::Detector) {
-            snprintf(rewardNext, sizeof(rewardNext), "Suggested next: equip %s before Observing a site with hidden leads.",
-                     item.name);
+            snprintf(rewardNext, sizeof(rewardNext), "%s wants a quiet site and a patient read.", item.name);
             return;
         }
         if (item.slot == Slot::Tool) {
-            snprintf(rewardNext, sizeof(rewardNext), "Suggested next: take %s to a Door or Cache lead.", item.name);
+            snprintf(rewardNext, sizeof(rewardNext), "%s belongs near a stubborn door or a nervous cache.", item.name);
             return;
         }
         if (item.slot == Slot::Suit) {
-            snprintf(rewardNext, sizeof(rewardNext), "Suggested next: wear %s and choose a route that matches it.",
-                     item.name);
+            snprintf(rewardNext, sizeof(rewardNext), "%s will change which routes feel survivable.", item.name);
             return;
         }
         if (item.slot == Slot::Artifact) {
-            snprintf(rewardNext, sizeof(rewardNext), "Suggested next: inspect %s; artifacts change tomorrow's plan.",
-                     item.name);
+            snprintf(rewardNext, sizeof(rewardNext), "%s is not finished with tomorrow.", item.name);
             return;
         }
         if (item.slot == Slot::Consumable) {
-            snprintf(rewardNext, sizeof(rewardNext), "Suggested next: save %s for the site that punishes its weakness.",
-                     item.name);
+            snprintf(rewardNext, sizeof(rewardNext), "%s is best spent where the city bites hardest.", item.name);
             return;
         }
-        snprintf(rewardNext, sizeof(rewardNext), "Suggested next: trade %s if the clinic bill starts breathing.",
-                 item.name);
+        snprintf(rewardNext, sizeof(rewardNext), "%s will keep its value when the clinic tray comes out.", item.name);
         return;
     }
 
     if (action == UiAction::Observe && siteLead[currentSite] != LeadKind::None) {
-        snprintf(rewardNext, sizeof(rewardNext), "Suggested next: follow the %s before dawn clears the trail.",
-                 leadName(siteLead[currentSite]));
+        snprintf(rewardNext, sizeof(rewardNext), "The %s will not wait politely for dawn.", leadName(siteLead[currentSite]));
     } else if (outcome == OutcomeLevel::Failure) {
-        snprintf(rewardNext, sizeof(rewardNext), "Suggested next: retreat, trade, or Observe somewhere safer before pushing again.");
+        snprintf(rewardNext, sizeof(rewardNext), "The body asks for a cheaper plan before the city does.");
     } else if (action == UiAction::Explore && siteCache[currentSite] == 0) {
-        snprintf(rewardNext, sizeof(rewardNext), "Suggested next: move sites; this cache is dry until the city restocks.");
+        snprintf(rewardNext, sizeof(rewardNext), "This cache is dry until the city forgets who emptied it.");
     } else if (lead != LeadKind::None) {
-        snprintf(rewardNext, sizeof(rewardNext), "Suggested next: bring kit that favours %s checks.", leadName(lead));
+        snprintf(rewardNext, sizeof(rewardNext), "The %s wants a kit built for that kind of trouble.", leadName(lead));
     } else {
-        snprintf(rewardNext, sizeof(rewardNext), "Suggested next: check the clinic board for tomorrow's offer.");
+        snprintf(rewardNext, sizeof(rewardNext), "The clinic board will have new handwriting by morning.");
     }
 }
 
@@ -2790,7 +2783,7 @@ void requestStoryDecision(StoryArc arc, char* message, size_t messageSize) {
         return;
     }
     pendingStoryArc = arc;
-    const char* note = "A story decision waits. Choose how this rumour becomes true.";
+    const char* note = "The rumour stops moving and waits for your hands.";
     appendAbilityNote(message, messageSize, note);
     queueDialogue("Decision Point", storyDecisionPrompt(arc), rgb(230, 180, 70));
 }
@@ -2897,8 +2890,8 @@ void completeStoryDecision(uint8_t choice) {
 
     snprintf(rewardTitle, sizeof(rewardTitle), "%s", storyTitle(arc));
     snprintf(rewardSummary, sizeof(rewardSummary), "%s", message);
-    snprintf(rewardChanged, sizeof(rewardChanged), "Changed: rumour outcome recorded; site pressure and future routes shifted.");
-    snprintf(rewardNext, sizeof(rewardNext), "Suggested next: check the rumour board; the city's consequences have changed.");
+    snprintf(rewardChanged, sizeof(rewardChanged), "The rumour has teeth now; routes and pressure shift around it.");
+    snprintf(rewardNext, sizeof(rewardNext), "The board will not read the same in the morning.");
     setStatus(message);
     currentScreen = Screen::Reward;
     screenDirty = true;
@@ -2921,8 +2914,7 @@ void advanceBatteriesForDead(UiAction action, OutcomeLevel outcome, LeadKind lea
          (action == UiAction::FollowLead && lead == LeadKind::Contact) || equippedCatalogItem(kDeadPagerItem) ||
          equippedCatalogItem(kCopperToothRadioItem) || equippedCatalogItem(kWarmBatteryItem))) {
         storyStage[arc] = 1;
-        const char* note =
-            "Batteries for the Dead begins: Sister Clamp asks if you brought power for Station Mercy.";
+        const char* note = "Sister Clamp asks if you brought power for Station Mercy.";
         appendAbilityNote(message, messageSize, note);
         queueDialogue("Rumour Updated", note, rgb(230, 180, 70));
         return;
@@ -2940,8 +2932,7 @@ void advanceLastSaleAtB2(UiAction action, OutcomeLevel outcome, LeadKind lead, c
     }
     if (storyStage[arc] == 0 && (action == UiAction::Explore || lead == LeadKind::Door)) {
         storyStage[arc] = 1;
-        const char* note =
-            "The Last Sale at Level B2 begins: the PA reserves something for your account below the water.";
+        const char* note = "The PA reserves something for your account below the water.";
         appendAbilityNote(message, messageSize, note);
         queueDialogue("Rumour Updated", note, rgb(90, 210, 220));
         return;
@@ -2961,7 +2952,7 @@ void advancePersonWhoNeverEntered(UiAction action, OutcomeLevel outcome, LeadKin
     if (storyStage[arc] == 1 && currentSite == 1 &&
         (action == UiAction::Observe || lead == LeadKind::Contact || lead == LeadKind::Door)) {
         storyStage[arc] = 2;
-        const char* note = "The Person Who Never Entered continues: Mink says your face has traffic.";
+        const char* note = "Mink says your face has traffic.";
         appendAbilityNote(message, messageSize, note);
         queueDialogue("Rumour Updated", note, rgb(220, 90, 190));
         return;
@@ -3059,74 +3050,85 @@ const char* siteScenePrompt(uint8_t siteIndex, UiAction action, LeadKind lead) {
 void addItemAwareEncounterChoices(UiAction action, LeadKind lead) {
     if (action == UiAction::Observe) {
         addEncounterChoice("Wait It Out", "Let the scene repeat until the false rhythms expose themselves.",
-                           "Choice: safer read, lower dose, but no shortcut.", 1, 0, -1, 0, 0);
+                           "The city breathes past you instead of through you.", 1, 0, -1, 0, 0);
         addEncounterChoice("Push The Read", "Move closer before the pattern settles. The reward may be clearer, if you are.",
-                           "Choice: lower target, higher dose and attention.", 0, -1, 1, 1, 0);
+                           "The pattern sharpens because you stand where it can smell you.", 0, -1, 1, 1, 0);
         const bool hasDetector = equippedCatalogItem(kCoilDetectorItem) || equippedCatalogItem(kGlassNeedleItem) ||
                                  equippedCatalogItem(kMothCompassItem) || equippedCatalogItem(kRainCounterItem) ||
                                  equippedCatalogItem(kDeadPagerItem);
         addEncounterChoice("Trust Detector", "Let the kit decide which detail is lying first.",
-                           hasDetector ? "Choice: detector-assisted read." : "Needs an equipped detector.",
+                           hasDetector ? "The detector chooses which lie deserves your attention."
+                                       : "No equipped detector answers the scene.",
                            2, -1, 0, 0, 0, hasDetector);
         addEncounterChoice("Stay Invisible", "Read from bad cover and leave no obvious shape behind.",
-                           "Choice: attention stays lower, but the check is harder.", -1, 1, 0, -1, 0);
+                           "Bad cover keeps your outline thin and your certainty thinner.", -1, 1, 0, -1, 0);
         return;
     }
 
     if (action == UiAction::Explore) {
         addEncounterChoice("Sweep Edges", "Work the perimeter and leave the obvious prize alone until last.",
-                           "Choice: safer and quieter, but costs another two hours.", 0, 1, -1, -1, 1);
+                           "The edges take longer, but they bite softer.", 0, 1, -1, -1, 1);
         addEncounterChoice("Cut Straight In", "Cross the open ground before fear catches up.",
-                           "Choice: faster pressure, louder consequences.", 1, 0, 1, 2, 0);
+                           "Speed buys reach and sells your silhouette.", 1, 0, 1, 2, 0);
         const bool hasTool = equippedCatalogItem(kPrybarKitItem) || equippedCatalogItem(kSolderRigItem) ||
                              equippedCatalogItem(kMercyBoltCutterItem) || equippedCatalogItem(kServiceWormItem);
         addEncounterChoice("Use The Tool", "Let your kit turn the obstacle into a method.",
-                           hasTool ? "Choice: tool-assisted approach." : "Needs a relevant equipped tool.", 2, -1, 0,
+                           hasTool ? "Metal, firmware, and stubborn hands make the obstacle legible."
+                                   : "No suitable tool is ready in your hands.",
+                           2, -1, 0,
                            hasTool && equippedCatalogItem(kSolderRigItem) ? -1 : 1, 0, hasTool);
         const bool hasBattery = hasCatalogItem(kBatteryCellItem);
         addEncounterChoice("Spend Battery", "Burn a cell to wake a dead panel or blind a cheap alarm.",
-                           hasBattery ? "Choice: consumes Battery Cell, lowers attention." : "Needs Battery Cell.", 1,
+                           hasBattery ? "The cell dies hot, and a cheap alarm forgets your face."
+                                      : "No Battery Cell waits in the pack.",
+                           1,
                            -1, 0, -2, 0, hasBattery, kBatteryCellItem, true);
         return;
     }
 
     addEncounterChoice("Take It Slow", "Follow the lead on its own terms and accept the time it demands.",
-                       "Choice: steady approach, modest benefit.", 1, 0, 0, 0, 0);
+                       "The lead settles when you stop trying to own it.", 1, 0, 0, 0, 0);
     addEncounterChoice("Force It", "Solve the problem before it finishes becoming one.",
-                       "Choice: stronger push, more exposure and attention.", 2, 0, 1, 2, 0);
+                       "The problem opens because you make enough noise to be answered.", 2, 0, 1, 2, 0);
 
     if (lead == LeadKind::Anomaly) {
         const bool hasIodine = hasCatalogItem(kIodineAmpouleItem) || hasCatalogItem(kBlackIodineStripItem);
         const uint8_t item = hasCatalogItem(kBlackIodineStripItem) ? kBlackIodineStripItem : kIodineAmpouleItem;
         addEncounterChoice("Dose First", "Stain the mouth before touching the impossible edge.",
-                           hasIodine ? "Choice: consumes anti-rad dose, steadies anomaly work."
-                                     : "Needs Iodine or Black Iodine.",
+                           hasIodine ? "The dose takes the first bite so your hands can stay useful."
+                                     : "No Iodine or Black Iodine waits in the pack.",
                            2, -2, -2, 0, 0, hasIodine, item, true);
     } else if (lead == LeadKind::Contact) {
         const bool hasTea = hasCatalogItem(kGhostTeaAmpouleItem);
         addEncounterChoice("Drink Ghost Tea", "Arrive as someone easier to forget.",
-                           hasTea ? "Choice: consumes Ghost Tea, safer contact." : "Needs Ghost Tea.", 2, -1, 0,
+                           hasTea ? "The tea makes your outline sound like somebody else's weather."
+                                  : "No Ghost Tea waits in the pack.",
+                           2, -1, 0,
                            -2, 0, hasTea, kGhostTeaAmpouleItem, true);
     } else if (lead == LeadKind::Trail) {
         const bool hasSalt = hasCatalogItem(kFenceRunnersSaltItem);
         addEncounterChoice("Salt The Gloves", "Make your hands remember fences the path has not shown you yet.",
-                           hasSalt ? "Choice: consumes Fence Runner's Salt, cleaner trail." : "Needs Fence Runner's Salt.",
+                           hasSalt ? "The salt gives your hands a route your eyes have not earned."
+                                   : "No Fence Runner's Salt waits in the pack.",
                            2, -1, -1, -1, 0, hasSalt, kFenceRunnersSaltItem, true);
     } else if (lead == LeadKind::Door) {
         const bool hasDoorTool = equippedCatalogItem(kSolderRigItem) || equippedCatalogItem(kRainKeyItem) ||
                                  equippedCatalogItem(kPrybarKitItem) || equippedCatalogItem(kMercyBoltCutterItem);
         addEncounterChoice("Work The Lock", "Use the kit's favourite kind of violence.",
-                           hasDoorTool ? "Choice: door tool opens a cleaner line." : "Needs a door-capable tool.",
+                           hasDoorTool ? "The lock stops being a wall and becomes a conversation."
+                                       : "No door tool is ready in your hands.",
                            2, -1, 0, equippedCatalogItem(kPrybarKitItem) ? 1 : -1, 0, hasDoorTool);
     } else {
         const bool hasWater = hasCatalogItem(kCleanWaterItem);
         addEncounterChoice("Spend Water", "Wash grit from the find before it gets into your hands and lungs.",
-                           hasWater ? "Choice: consumes Clean Water, lowers exposure." : "Needs Clean Water.", 1, -1,
+                           hasWater ? "Clean water carries the grit away before your lungs learn it."
+                                    : "No Clean Water waits in the pack.",
+                           1, -1,
                            -2, 0, 0, hasWater, kCleanWaterItem, true);
     }
 
     addEncounterChoice("Mark And Leave", "Take the smallest useful truth and do not force the rest.",
-                       "Choice: harder to profit, quieter if it works.", -1, 1, -1, -2, 0);
+                       "The mark keeps the thread alive without teaching the site your name.", -1, 1, -1, -2, 0);
 }
 
 void buildEncounterForAction(UiAction action) {
@@ -3136,6 +3138,38 @@ void buildEncounterForAction(UiAction action) {
     snprintf(encounterTitle, sizeof(encounterTitle), "%s: %s", actionLabel(action), sites[currentSite].name);
     snprintf(encounterBody, sizeof(encounterBody), "%s", siteScenePrompt(currentSite, action, lead));
     addItemAwareEncounterChoices(action, lead);
+}
+
+void formatEncounterDrift(const RuntimeEncounterChoice& choice, char* out, size_t outSize) {
+    out[0] = '\0';
+    if (choice.skillDelta > 0) {
+        appendAbilityNote(out, outSize, "Odds up.");
+    } else if (choice.skillDelta < 0) {
+        appendAbilityNote(out, outSize, "Odds down.");
+    }
+    if (choice.targetDelta < 0) {
+        appendAbilityNote(out, outSize, "Wall softens.");
+    } else if (choice.targetDelta > 0) {
+        appendAbilityNote(out, outSize, "Wall bites.");
+    }
+    if (choice.doseDelta > 0) {
+        appendAbilityNote(out, outSize, "Glow up.");
+    } else if (choice.doseDelta < 0) {
+        appendAbilityNote(out, outSize, "Glow low.");
+    }
+    if (choice.attentionDelta > 0) {
+        appendAbilityNote(out, outSize, "Eyes gather.");
+    } else if (choice.attentionDelta < 0) {
+        appendAbilityNote(out, outSize, "Eyes slide.");
+    }
+    if (choice.timeDelta > 0) {
+        appendAbilityNote(out, outSize, "Daylight spent.");
+    } else if (choice.timeDelta < 0) {
+        appendAbilityNote(out, outSize, "Daylight back.");
+    }
+    if (out[0] == '\0') {
+        snprintf(out, outSize, "Pressure steady.");
+    }
 }
 
 void applyEncounterItemUse(const RuntimeEncounterChoice& choice) {
@@ -3243,17 +3277,17 @@ void applyFieldEncounterAndRepercussion(UiAction action, OutcomeLevel outcome, L
 
     char encounter[190];
     if (action == UiAction::Explore) {
-        snprintf(encounter, sizeof(encounter), "Encounter: %s", siteExploreEncounterText(actionSite, outcome));
+        snprintf(encounter, sizeof(encounter), "%s", siteExploreEncounterText(actionSite, outcome));
     } else if (action == UiAction::FollowLead) {
-        snprintf(encounter, sizeof(encounter), "Encounter: %s", leadEncounterText(lead, outcome));
+        snprintf(encounter, sizeof(encounter), "%s", leadEncounterText(lead, outcome));
     } else {
-        snprintf(encounter, sizeof(encounter), "Encounter: You hold still until %s shows its working parts.",
+        snprintf(encounter, sizeof(encounter), "You hold still until %s shows its working parts.",
                  sites[actionSite].name);
     }
     appendAbilityNote(message, messageSize, encounter);
 
     char impact[180];
-    snprintf(impact, sizeof(impact), "Impact: %s pressure is now attention %u/%u, cache %u/%u.",
+    snprintf(impact, sizeof(impact), "%s settles at attention %u/%u; cache %u/%u remains.",
              sites[actionSite].name, siteAttention[actionSite], kMaxSiteAttention, siteCache[actionSite],
              sites[actionSite].maxCache);
     appendAbilityNote(rewardChanged, sizeof(rewardChanged), impact);
@@ -3261,18 +3295,18 @@ void applyFieldEncounterAndRepercussion(UiAction action, OutcomeLevel outcome, L
     if (action == UiAction::Explore && siteAttention[actionSite] >= 5) {
         if (siteCache[actionSite] > 0) {
             --siteCache[actionSite];
-            snprintf(impact, sizeof(impact), "Repercussion: your noise brings scavengers in behind you; cache -1.");
+            snprintf(impact, sizeof(impact), "Your noise brings scavengers in behind you; one cache disappears.");
         } else {
             siteIntel[actionSite] =
                 siteIntel[actionSite] > 0 ? static_cast<uint8_t>(siteIntel[actionSite] - 1) : 0;
-            snprintf(impact, sizeof(impact), "Repercussion: the hot site spoils one useful note.");
+            snprintf(impact, sizeof(impact), "Heat curdles your notes; one useful read goes stale.");
         }
         appendAbilityNote(message, messageSize, impact);
         appendAbilityNote(rewardChanged, sizeof(rewardChanged), impact);
     }
 
     if (packOverflowed) {
-        const char* overflow = "Repercussion: the pack is full; at least one find is left in the rain.";
+        const char* overflow = "The pack is full; at least one find stays in the rain.";
         appendAbilityNote(message, messageSize, overflow);
         appendAbilityNote(rewardChanged, sizeof(rewardChanged), overflow);
     }
@@ -3310,7 +3344,7 @@ void resolveFieldAction(UiAction action) {
     describeActionAbilities(action, lead, abilityNote, sizeof(abilityNote));
     if (encounterChoice != nullptr) {
         char choiceNote[190];
-        snprintf(choiceNote, sizeof(choiceNote), "Choice: %s. %s", encounterChoice->label, encounterChoice->impact);
+        snprintf(choiceNote, sizeof(choiceNote), "%s", encounterChoice->impact);
         appendAbilityNote(abilityNote, sizeof(abilityNote), choiceNote);
     }
     if (outcome == OutcomeLevel::Full && exposure >= 10 && !exposureProtectionActive()) {
@@ -3457,14 +3491,12 @@ void resolveFieldAction(UiAction action) {
                 grantTradeGoods(static_cast<uint8_t>(gainValue + 2));
             }
             snprintf(message, sizeof(message),
-                     "%s %s %d/%d %s. Lead: %s. %s",
-                     site.observeText, actionCheckText(action), total, target, outcomeName(outcome), leadName(foundLead),
-                     leadWhisper(foundLead));
+                     "%s The pattern gives up a %s. %s",
+                     site.observeText, leadName(foundLead), leadWhisper(foundLead));
         } else {
             exposure = clampInt(exposure + 1, 0, kMaxExposure);
             snprintf(message, sizeof(message),
-                     "You wait too long in bad cover. %s %d/%d. Attention +%u, exposure creeps up.",
-                     actionCheckText(action), total, target, attentionGain);
+                     "You wait too long in bad cover. Eyes find the shape of you, and the glow creeps under your collar.");
         }
     } else if (action == UiAction::Explore) {
         if (rewardOutcome) {
@@ -3491,9 +3523,8 @@ void resolveFieldAction(UiAction action) {
                 const LeadKind foundLead = randomLeadForSite(currentSite);
                 siteLead[currentSite] = foundLead;
                 snprintf(message, sizeof(message),
-                         "You actively explore %s. %s %d/%d %s. Goods worth about %d, plus a %s.",
-                         site.name, actionCheckText(action), total, target, outcomeName(outcome), gain,
-                         leadName(foundLead));
+                         "You actively explore %s. The place pays in goods worth about %d, then points toward a %s.",
+                         site.name, gain, leadName(foundLead));
             } else {
                 const uint8_t itemId = randomLootForAction(action);
                 const bool duplicate = hasCatalogItem(itemId) && itemCatalog[itemId].use.kind != ItemUseKind::Consume;
@@ -3505,15 +3536,13 @@ void resolveFieldAction(UiAction action) {
                 if (!duplicate && random(0, 100) < itemChance) {
                     grantRewardItem(itemId);
                     snprintf(message, sizeof(message),
-                             "You push through %s. %s %d/%d %s. Goods worth about %d and %s.",
-                             site.name, actionCheckText(action), total, target, outcomeName(outcome), gain,
-                             itemCatalog[itemId].name);
+                             "You push through %s. The haul is goods worth about %d and %s.",
+                             site.name, gain, itemCatalog[itemId].name);
                 } else {
                     grantTradeGoods(static_cast<uint8_t>(itemCatalog[itemId].value / 2));
                     snprintf(message, sizeof(message),
-                             "You push through %s. %s %d/%d %s. Goods and salvage worth about %d. Cache %u.",
-                             site.name, actionCheckText(action), total, target, outcomeName(outcome), gain,
-                             siteCache[currentSite]);
+                             "You push through %s. Goods and salvage worth about %d come loose. Cache %u.",
+                             site.name, gain, siteCache[currentSite]);
                 }
             }
         } else {
@@ -3544,8 +3573,8 @@ void resolveFieldAction(UiAction action) {
             health = clampInt(health - wound, 0, kMaxHealth);
             exposure = clampInt(exposure + dose, 0, kMaxExposure);
             snprintf(message, sizeof(message),
-                     "%s punishes blind movement. %s %d/%d. Attention +%u, -%d body, +%d exposure.",
-                     site.name, actionCheckText(action), total, target, attentionGain, wound, dose);
+                     "%s punishes blind movement. The hit costs %d body and leaves %d exposure behind.",
+                     site.name, wound, dose);
         }
     } else if (action == UiAction::FollowLead) {
         if (rewardOutcome) {
@@ -3574,8 +3603,8 @@ void resolveFieldAction(UiAction action) {
                 siteAttention[currentSite] =
                     siteAttention[currentSite] > 0 ? static_cast<uint8_t>(siteAttention[currentSite] - 1) : 0;
                 snprintf(message, sizeof(message),
-                         "You approach the quiet contact correctly. %s %d/%d %s. Goods worth about %d, attention softens.",
-                         actionCheckText(action), total, target, outcomeName(outcome), gain);
+                         "You approach the quiet contact correctly. Goods worth about %d change hands, and attention softens.",
+                         gain);
             } else if (lead == LeadKind::Trail) {
                 siteIntel[currentSite] =
                     clampInt(siteIntel[currentSite] + (outcome == OutcomeLevel::Partial ? 0 : 1), 0, kMaxSiteIntel);
@@ -3589,8 +3618,7 @@ void resolveFieldAction(UiAction action) {
                                       "The Map Scalpel cuts one intel into a temporary shortcut.");
                 }
                 snprintf(message, sizeof(message),
-                         "You trace the cleaner footpath. %s %d/%d %s. Attention drops, exposure drops.",
-                         actionCheckText(action), total, target, outcomeName(outcome));
+                         "You trace the cleaner footpath. Attention drops, exposure drops, and the ground feels less hungry.");
             } else {
                 if (siteCache[currentSite] > 0) {
                     --siteCache[currentSite];
@@ -3627,15 +3655,13 @@ void resolveFieldAction(UiAction action) {
                 if (!duplicate || itemCatalog[itemId].use.kind == ItemUseKind::Consume) {
                     grantTradeGoods(static_cast<uint8_t>(gain));
                     grantRewardItem(itemId);
-                    snprintf(message, sizeof(message), "You %s the %s. %s %d/%d %s. Goods worth about %d and %s.",
-                             leadVerb(lead), leadName(lead), actionCheckText(action), total, target,
-                             outcomeName(outcome), gain, itemCatalog[itemId].name);
+                    snprintf(message, sizeof(message), "You %s the %s. It leaves goods worth about %d and %s.",
+                             leadVerb(lead), leadName(lead), gain, itemCatalog[itemId].name);
                 } else {
                     grantTradeGoods(static_cast<uint8_t>(gain + itemCatalog[itemId].value / 2));
                     snprintf(message, sizeof(message),
-                             "You %s the %s. %s %d/%d %s. Goods and valuable fragments worth about %d.",
-                             leadVerb(lead), leadName(lead), actionCheckText(action), total, target,
-                             outcomeName(outcome), gain);
+                             "You %s the %s. Goods and valuable fragments worth about %d come free.",
+                             leadVerb(lead), leadName(lead), gain);
                 }
             }
             if (!keepLeadAfterFollow) {
@@ -3678,8 +3704,8 @@ void resolveFieldAction(UiAction action) {
             health = clampInt(health - wound, 0, kMaxHealth);
             exposure = clampInt(exposure + dose, 0, kMaxExposure);
             snprintf(message, sizeof(message),
-                     "The %s turns bad. %s %d/%d. Lead lost, attention +%u, -%d body, +%d exposure.",
-                     leadName(lead), actionCheckText(action), total, target, attentionGain, wound, dose);
+                     "The %s turns bad. The thread snaps; it costs %d body and leaves %d exposure behind.",
+                     leadName(lead), wound, dose);
         }
     } else {
         return;
@@ -3731,7 +3757,7 @@ void resolveFieldAction(UiAction action) {
         clearPinnedLead();
     }
     snprintf(rewardChanged, sizeof(rewardChanged),
-             "Changed: %s at %s; time -%uh, exposure +%d, attention +%u.",
+             "%s at %s; daylight -%uh, exposure +%d, attention +%u.",
              outcomeName(outcome), site.name, static_cast<unsigned>(spentTicks * kTickHours), ambientDose,
              static_cast<unsigned>(attentionGain));
     if (encounterChoice != nullptr) {
@@ -3905,13 +3931,13 @@ void completeTrade() {
     snprintf(rewardTitle, sizeof(rewardTitle), "Trade Complete");
     snprintf(rewardSummary, sizeof(rewardSummary), "You traded goods worth %d for goods worth %d. No one gives change.",
              offer, ask);
-    snprintf(rewardChanged, sizeof(rewardChanged), "Changed: pack contents and available trade value were recalculated.");
+    snprintf(rewardChanged, sizeof(rewardChanged), "The blanket comes back lighter in one place and heavier in another.");
     if (packOverflowed) {
-        const char* overflow = "Repercussion: the pack is full; some trade goods stay on the blanket.";
+        const char* overflow = "The pack will not close; some trade goods stay on the blanket.";
         appendAbilityNote(rewardSummary, sizeof(rewardSummary), overflow);
         appendAbilityNote(rewardChanged, sizeof(rewardChanged), overflow);
     }
-    snprintf(rewardNext, sizeof(rewardNext), "Suggested next: inspect the new goods, then choose a route that uses them.");
+    snprintf(rewardNext, sizeof(rewardNext), "New weight changes what the next route can ask of you.");
     setStatus(rewardSummary);
     resetTradeSelections();
     currentScreen = Screen::Reward;
@@ -4207,26 +4233,29 @@ void drawActionDetailScreen() {
     drawFormattedTextFit(innerX, top + 16, innerW, TFT_WHITE, bg, "%s at %s", actionLabel(action),
                          sites[currentSite].name);
     display.setFont(&fonts::Font2);
-    drawFormattedTextFit(innerX, top + 52, innerW, enabled ? rgb(178, 198, 194) : rgb(210, 130, 130), bg,
-                         enabled ? "%s against target %d" : "Blocked: %s", enabled ? actionCheckText(action)
-                                                                                   : actionBlockedText(action),
-                         target);
+    char detailSubtitle[120];
+    if (enabled) {
+        snprintf(detailSubtitle, sizeof(detailSubtitle), "%s / threshold %d", actionCheckText(action), target);
+    } else {
+        snprintf(detailSubtitle, sizeof(detailSubtitle), "%s", actionBlockedText(action));
+    }
+    drawTextFit(detailSubtitle, innerX, top + 52, innerW, enabled ? rgb(178, 198, 194) : rgb(210, 130, 130), bg);
     display.drawFastHLine(innerX, top + 82, innerW, rgb(55, 70, 70));
 
     display.fillRoundRect(innerX, detailTop, leftW, 346, 6, rgb(12, 18, 24));
     display.drawRoundRect(innerX, detailTop, leftW, 346, 6, accent);
     display.setFont(&fonts::Font4);
-    drawTextFit("Commitment Read", innerX + 16, detailTop + 14, leftW - 32, rgb(130, 230, 200), rgb(12, 18, 24));
+    drawTextFit("Readout", innerX + 16, detailTop + 14, leftW - 32, rgb(130, 230, 200), rgb(12, 18, 24));
     display.setFont(&fonts::Font2);
     drawFormattedTextFit(innerX + 18, detailTop + 54, leftW - 36, rgb(190, 208, 204), rgb(12, 18, 24),
-                         "Check: %s", actionCheckText(action));
+                         "Method: %s", actionCheckText(action));
     drawFormattedTextFit(innerX + 18, detailTop + 78, leftW - 36, rgb(190, 208, 204), rgb(12, 18, 24),
-                         "Skill %d vs target %d", skill, target);
+                         "Edge %d / threshold %d", skill, target);
     drawFormattedTextFit(innerX + 18, detailTop + 102, leftW - 36, rgb(150, 168, 170), rgb(12, 18, 24),
-                         "Time %uh   exposure +%d", static_cast<unsigned>(actionTimeCost(action) * kTickHours),
+                         "Cost %uh   exposure +%d", static_cast<unsigned>(actionTimeCost(action) * kTickHours),
                          dose);
     drawFormattedTextFit(innerX + 18, detailTop + 126, leftW - 36, rgb(150, 168, 170), rgb(12, 18, 24),
-                         "Payoff: %s", enabled ? actionPayoffText(action) : actionBlockedText(action));
+                         "Prize: %s", enabled ? actionPayoffText(action) : actionBlockedText(action));
 
     drawChanceBar(innerX + 18, detailTop + 164, leftW - 36, "Clean", cleanChance, rgb(120, 220, 160),
                   rgb(12, 18, 24));
@@ -4241,38 +4270,35 @@ void drawActionDetailScreen() {
     buildAreaPressureSynopsis(synopsis, sizeof(synopsis));
     char abilityPreview[260];
     describeActionAbilities(action, lead, abilityPreview, sizeof(abilityPreview));
-    char targetRead[260];
-    snprintf(targetRead, sizeof(targetRead),
-             "Target starts from the site's live risk: base danger, attention, intel, and dusk pressure. This action then adds its own shape before kit effects settle the number.");
     char focusRead[240];
     if (selectedDawnOffer >= 0 && selectedDawnOffer < 3 && dawnOffers[selectedDawnOffer].active) {
         const DawnOffer& offer = dawnOffers[selectedDawnOffer];
-        snprintf(focusRead, sizeof(focusRead), "%s focus: %s at %s. %s",
-                 dawnOfferMatchesAction(offer, action, lead) ? "Matched" : "Selected",
+        snprintf(focusRead, sizeof(focusRead), "%s at %s. %s",
                  offer.title, sites[offer.site].name,
-                 dawnOfferMatchesAction(offer, action, lead) ? "Success here can pay the board."
-                                                             : "This action will not pay it yet.");
+                 dawnOfferMatchesAction(offer, action, lead) ? "The board leans toward this."
+                                                             : "The board is pulling elsewhere.");
     } else {
-        snprintf(focusRead, sizeof(focusRead), "No dawn focus marked. Board rewards wait until you choose one at the clinic.");
+        focusRead[0] = '\0';
     }
 
     display.fillRoundRect(rightX, detailTop, rightW, 346, 6, rgb(12, 18, 24));
     display.drawRoundRect(rightX, detailTop, rightW, 346, 6, rgb(90, 210, 220));
     display.setFont(&fonts::Font4);
-    drawTextFit("Why It Looks This Way", rightX + 16, detailTop + 14, rightW - 32, rgb(130, 230, 200),
-                rgb(12, 18, 24));
+    drawTextFit("Pressure", rightX + 16, detailTop + 14, rightW - 32, rgb(130, 230, 200), rgb(12, 18, 24));
     display.setFont(&fonts::Font2);
-    drawWrappedText(synopsis, rightX + 18, detailTop + 54, rightW - 36, 3, rgb(190, 208, 204), rgb(12, 18, 24));
-    drawWrappedText(targetRead, rightX + 18, detailTop + 128, rightW - 36, 3, rgb(150, 168, 170), rgb(12, 18, 24));
-    drawWrappedText(abilityPreview[0] != '\0' ? abilityPreview : "No special kit interaction is visible for this move.",
-                    rightX + 18, detailTop + 202, rightW - 36, 3, rgb(190, 208, 204), rgb(12, 18, 24));
-    drawWrappedText(focusRead, rightX + 18, detailTop + 276, rightW - 36, 2, rgb(230, 180, 70), rgb(12, 18, 24));
+    drawWrappedText(synopsis, rightX + 18, detailTop + 54, rightW - 36, 4, rgb(190, 208, 204), rgb(12, 18, 24));
+    drawWrappedText(abilityPreview[0] != '\0' ? abilityPreview : "The kit gives no warning.",
+                    rightX + 18, detailTop + 160, rightW - 36, 4, rgb(190, 208, 204), rgb(12, 18, 24));
+    if (focusRead[0] != '\0') {
+        drawWrappedText(focusRead, rightX + 18, detailTop + 276, rightW - 36, 2, rgb(230, 180, 70),
+                        rgb(12, 18, 24));
+    }
 
     const int32_t leadY = detailTop + 350;
     display.fillRoundRect(innerX, leadY, innerW, 72, 6, rgb(12, 18, 24));
     display.drawRoundRect(innerX, leadY, innerW, 72, 6, rgb(220, 90, 190));
     drawFormattedTextFit(innerX + 18, leadY + 14, innerW - 36, rgb(190, 208, 204), rgb(12, 18, 24),
-                         "Current lead: %s", leadName(lead));
+                         "Lead: %s", leadName(lead));
     drawWrappedText(leadWhisper(lead), innerX + 18, leadY + 38, innerW - 36, 1, rgb(150, 168, 170),
                     rgb(12, 18, 24));
 
@@ -4355,11 +4381,9 @@ void drawEncounterScreen() {
 
         char rules[180];
         if (!choice.enabled && choice.requiredItem != kNoItemRequirement) {
-            snprintf(rules, sizeof(rules), "Needs %s.", itemCatalog[choice.requiredItem].name);
+            snprintf(rules, sizeof(rules), "Missing: %s.", itemCatalog[choice.requiredItem].name);
         } else {
-            snprintf(rules, sizeof(rules), "Skill %+d  target %+d  dose %+d  attention %+d  time %+dh",
-                     choice.skillDelta, choice.targetDelta, choice.doseDelta, choice.attentionDelta,
-                     static_cast<int>(choice.timeDelta) * kTickHours);
+            formatEncounterDrift(choice, rules, sizeof(rules));
         }
         drawTextFit(rules, x + 34, y + cardH - 28, cardW - 202,
                     choice.enabled ? rgb(150, 168, 170) : rgb(110, 115, 120), cardBg);
@@ -5128,7 +5152,7 @@ void drawItemDetailScreen() {
         readLines = 1;
     }
     char readText[640];
-    snprintf(readText, sizeof(readText), "Description. %s\nField Read. %s", item.description, item.fieldRead);
+    snprintf(readText, sizeof(readText), "%s\n\n%s", item.description, item.fieldRead);
     const uint16_t totalReadLines =
         renderPagedWrappedText(readText, readX + 12, readBoxY + 10, readW - 24, readLines, 0,
                                rgb(205, 218, 212), readBg, false);
@@ -5140,7 +5164,7 @@ void drawItemDetailScreen() {
 
     display.drawFastHLine(detailX + 18, top + 88, detailW - 36, rgb(55, 70, 70));
     display.setFont(&fonts::Font2);
-    drawTextFit("Description", readX, readTitleY, textNeedsPaging ? readW - 250 : readW, rgb(125, 230, 205), bg);
+    drawTextFit("Object Read", readX, readTitleY, textNeedsPaging ? readW - 250 : readW, rgb(125, 230, 205), bg);
     if (textNeedsPaging) {
         drawFormattedTextFit(detailX + detailW - 260, readTitleY + 4, 72, rgb(150, 168, 170), bg, "%u/%u",
                              static_cast<unsigned>(itemTextPage + 1), static_cast<unsigned>(maxTextPage + 1));
@@ -5155,24 +5179,21 @@ void drawItemDetailScreen() {
                            static_cast<uint16_t>(itemTextPage) * readLines, rgb(205, 218, 212), readBg, true);
 
     display.drawFastHLine(detailX + 18, previewTop, detailW - 36, rgb(55, 70, 70));
-    drawTextFit("Runner Preview", detailX + 20, previewTop + 16, detailW - 40, rgb(125, 230, 205), bg);
-    drawTextFit("Guide: Grit force, Tech devices, Scan reads, Ghost heat, Filter exposure, Strain risk.",
-                detailX + 20, previewTop + 38, detailW - 40, rgb(170, 188, 184), bg);
-    drawRunnerStatsLine("Current", currentStats, detailX + 20, previewTop + 64, detailW - 40, rgb(220, 230, 225), bg);
+    drawTextFit("Runner", detailX + 20, previewTop + 16, detailW - 40, rgb(125, 230, 205), bg);
+    drawRunnerStatsLine("Current", currentStats, detailX + 20, previewTop + 46, detailW - 40, rgb(220, 230, 225), bg);
     if (canPreviewEquip) {
         drawRunnerNetLine(equippedNow ? "Net" : "Net if equipped", currentStats, previewStats, detailX + 20,
-                          previewTop + 86, detailW - 40, bg);
+                          previewTop + 70, detailW - 40, bg);
     } else {
-        drawTextFit("Use effect: no equipment slot changes; body, dose, and attention are below.",
-                    detailX + 20, previewTop + 86, detailW - 40,
+        drawTextFit("No slot changes. The body keeps the receipt.", detailX + 20, previewTop + 70, detailW - 40,
                     rgb(190, 220, 210), bg);
     }
 
     display.drawFastHLine(detailX + 18, effectsTop, detailW - 36, rgb(55, 70, 70));
-    drawTextFit("Effects", detailX + 20, effectsTop + 14, detailW - 40, rgb(210, 220, 215), bg);
-    drawTextFit("Passive stat effect", detailX + 20, effectsTop + 38, detailW - 40, rgb(150, 168, 170), bg);
+    drawTextFit("Pull", detailX + 20, effectsTop + 14, detailW - 40, rgb(210, 220, 215), bg);
+    drawTextFit("Carried", detailX + 20, effectsTop + 38, detailW - 40, rgb(150, 168, 170), bg);
     drawFullItemStats(item, detailX + 20, effectsTop + 60, detailW - 40, bg);
-    drawTextFit("Use effect", detailX + 20, effectsTop + 108, detailW - 40, rgb(150, 168, 170), bg);
+    drawTextFit("Spent", detailX + 20, effectsTop + 108, detailW - 40, rgb(150, 168, 170), bg);
     drawFormattedTextFit(detailX + 20, effectsTop + 130, detailW - 40, rgb(185, 205, 200), bg,
                          "%s  Body %+d  Dose %+d  Attention %+d", itemUseKindText(item.use.kind),
                          item.use.healthDelta, item.use.exposureDelta, item.use.attentionDelta);
@@ -5224,7 +5245,7 @@ void drawInventoryScreen() {
     const uint8_t inventoryCount = inventoryItemCount();
     const uint8_t maxPage = maxInventoryPage(rowsPerPage);
     drawFormattedTextFit(listX + 18, top + 52, listW - 36, rgb(150, 168, 170), bg,
-                         "Tap an item to inspect it.  pack %u/%u  page %u/%u",
+                         "Pack %u/%u  page %u/%u",
                          static_cast<unsigned>(inventoryCount), static_cast<unsigned>(kPackItemLimit),
                          static_cast<unsigned>(inventoryPage + 1), static_cast<unsigned>(maxPage + 1));
 
@@ -5289,22 +5310,22 @@ void drawRewardScreen() {
 
     drawPanel(margin, top, width - margin * 2, panelH, rgb(120, 210, 180));
     display.setFont(&fonts::Font4);
-    drawTextFit(rewardTitle[0] == '\0' ? "Action Complete" : rewardTitle, margin + 18, top + 16, width - 72,
+    drawTextFit(rewardTitle[0] == '\0' ? "Field Note" : rewardTitle, margin + 18, top + 16, width - 72,
                 TFT_WHITE, bg);
     drawWrappedText(rewardSummary[0] == '\0' ? statusLine : rewardSummary, margin + 20, top + 58, width - 76, 3,
                     rgb(210, 222, 214), bg);
     if (rewardChanged[0] != '\0') {
-        drawWrappedText(rewardChanged, margin + 20, top + 122, width - 76, 1, rgb(230, 180, 70), bg);
+        drawWrappedText(rewardChanged, margin + 20, top + 122, width - 76, 2, rgb(230, 180, 70), bg);
     }
     if (rewardNext[0] != '\0') {
-        drawWrappedText(rewardNext, margin + 20, top + 148, width - 76, 2, rgb(130, 230, 200), bg);
+        drawWrappedText(rewardNext, margin + 20, top + 174, width - 76, 2, rgb(130, 230, 200), bg);
     }
 
     display.setFont(&fonts::Font4);
-    drawTextFit("Received", margin + 20, top + 190, width - 76, rgb(130, 230, 200), bg);
+    drawTextFit("Recovered", margin + 20, top + 218, width - 76, rgb(130, 230, 200), bg);
     if (rewardCount == 0) {
         display.setFont(&fonts::Font2);
-        drawTextFit("No goods recovered. Sometimes the Zone only pays in information.", margin + 22, top + 236,
+        drawTextFit("Nothing fits your hands. Sometimes the Zone pays in information.", margin + 22, top + 260,
                     width - 80, rgb(160, 178, 174), bg);
     }
 
@@ -5314,7 +5335,7 @@ void drawRewardScreen() {
         const int32_t col = i % 4;
         const int32_t row = i / 4;
         const int32_t cardX = margin + 20 + col * (cardW + 12);
-        const int32_t cardY = top + 230 + row * 112;
+        const int32_t cardY = top + 258 + row * 112;
         display.fillRoundRect(cardX, cardY, cardW, 96, 6, rgb(12, 18, 22));
         display.drawRoundRect(cardX, cardY, cardW, 96, 6, item.color);
         drawMiniItemIcon(item, cardX + 12, cardY + 16, 56, false);
@@ -5524,7 +5545,7 @@ void drawStoryDecisionScreen() {
                     rgb(190, 208, 204), bg);
 
     display.drawFastHLine(margin + 18, top + 132, width - margin * 2 - 36, rgb(70, 86, 82));
-    drawTextFit("Choose how the rumour becomes true", margin + 20, top + 148, width - margin * 2 - 40,
+    drawTextFit("The rumour wants a shape", margin + 20, top + 148, width - margin * 2 - 40,
                 rgb(130, 230, 200), bg);
 
     const int32_t choiceGap = 10;
@@ -5549,7 +5570,7 @@ void drawStoryDecisionScreen() {
     }
 
     const int32_t buttonY = height - bottomH;
-    drawTextFit("Choice applies immediately. The city keeps the receipt.", margin + 18, buttonY + 24,
+    drawTextFit("The city keeps the receipt.", margin + 18, buttonY + 24,
                 width - margin * 2 - 36, rgb(150, 168, 170), rgb(3, 6, 9));
 
     for (uint8_t i = 0; i < buttonCount; ++i) {
