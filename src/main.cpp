@@ -29,6 +29,10 @@ constexpr uint8_t kTradeStockCount = 8;
 constexpr uint8_t kTradeRowsPerPage = 6;
 constexpr uint8_t kMaxEncounterChoices = 4;
 constexpr uint8_t kNoItemRequirement = 255;
+constexpr size_t kShortCopy = 256;
+constexpr size_t kMediumCopy = 512;
+constexpr size_t kLongCopy = 1024;
+constexpr size_t kWrapLineCopy = 768;
 constexpr uint8_t kBatteryCellItem = 15;
 constexpr uint8_t kCleanWaterItem = 16;
 constexpr uint8_t kMedPackItem = 17;
@@ -109,13 +113,13 @@ struct DawnOffer {
     int8_t riskDelta = 0;
     bool active = false;
     const char* title = "";
-    char hook[132] = "";
+    char hook[kShortCopy] = "";
 };
 
 struct RuntimeEncounterChoice {
     char label[34] = "";
-    char text[190] = "";
-    char impact[160] = "";
+    char text[kMediumCopy] = "";
+    char impact[kMediumCopy] = "";
     uint8_t requiredItem = kNoItemRequirement;
     int8_t skillDelta = 0;
     int8_t targetDelta = 0;
@@ -158,8 +162,8 @@ uint8_t rewardCount = 0;
 DawnOffer dawnOffers[3];
 RuntimeEncounterChoice encounterChoices[kMaxEncounterChoices];
 uint8_t encounterChoiceCount = 0;
-char encounterTitle[90] = "";
-char encounterBody[420] = "";
+char encounterTitle[120] = "";
+char encounterBody[kLongCopy] = "";
 bool packOverflowed = false;
 Button buttons[kMaxButtons];
 uint8_t buttonCount = 0;
@@ -194,13 +198,13 @@ bool signalChalkMark[kSiteCapacity];
 uint8_t storyStage[static_cast<uint8_t>(StoryArc::Count)];
 uint8_t storyOutcome[static_cast<uint8_t>(StoryArc::Count)];
 StoryArc pendingStoryArc = StoryArc::Count;
-char statusLine[320] = "The rain tastes metallic. Your kit is the only thing between you and the quiet.";
+char statusLine[kLongCopy] = "The rain tastes metallic. Your kit is the only thing between you and the quiet.";
 char rewardTitle[80] = "";
-char rewardSummary[320] = "";
-char rewardChanged[320] = "";
-char rewardNext[220] = "";
+char rewardSummary[kLongCopy] = "";
+char rewardChanged[kMediumCopy] = "";
+char rewardNext[kMediumCopy] = "";
 char dialogueTitle[80] = "";
-char dialogueBody[360] = "";
+char dialogueBody[kLongCopy] = "";
 bool dialogueQueued = false;
 Screen dialogueNextScreen = Screen::Field;
 uint16_t dialogueAccent = 0;
@@ -1189,14 +1193,14 @@ void setDawnOffer(uint8_t index, DawnOfferKind kind, uint8_t site, LeadKind lead
 void generateDawnOffers() {
     selectedDawnOffer = -1;
     const uint8_t workSite = static_cast<uint8_t>(1 + ((day + 1) % (kSiteCount - 1)));
-    char workHook[132];
+    char workHook[kShortCopy];
     snprintf(workHook, sizeof(workHook), "%s needs a quiet supply run. The clinic tray will be kinder.",
              sites[workSite].name);
     setDawnOffer(0, DawnOfferKind::Work, workSite, LeadKind::Cache, kCleanWaterItem, 0, "Supply Run", workHook);
 
     const uint8_t rumourSite = nextRumourSite();
     const LeadKind rumourLead = rumourLeadForSite(rumourSite);
-    char rumourHook[132];
+    char rumourHook[kShortCopy];
     snprintf(rumourHook, sizeof(rumourHook), "%s is repeating a story around a %s. Observe or follow it.",
              sites[rumourSite].name, leadName(rumourLead));
     setDawnOffer(1, DawnOfferKind::Rumour, rumourSite, rumourLead, kDeadPagerItem, 0, "Unsettled Rumour", rumourHook);
@@ -1204,7 +1208,7 @@ void generateDawnOffers() {
     const uint8_t greedSite = day % 2 == 0 ? 4 : 3;
     const LeadKind greedLead = greedSite == 4 ? LeadKind::Trail : LeadKind::Anomaly;
     const uint8_t greedItem = greedSite == 4 ? kBlackReedSeedItem : kWhiteReceiptItem;
-    char greedHook[132];
+    char greedHook[kShortCopy];
     snprintf(greedHook, sizeof(greedHook), "%s has a costly %s with artifact weather around it.",
              sites[greedSite].name, leadName(greedLead));
     setDawnOffer(2, DawnOfferKind::Greed, greedSite, greedLead, greedItem, 1, "Bad Treasure", greedHook);
@@ -1229,7 +1233,7 @@ bool selectDawnOffer(int16_t index) {
 
     selectedDawnOffer = static_cast<int8_t>(index);
     const DawnOffer& offer = dawnOffers[index];
-    char message[180];
+    char message[kMediumCopy];
     snprintf(message, sizeof(message), "You mark %s at %s as today's focus.",
              dawnOfferKindName(offer.kind), sites[offer.site].name);
     setStatus(message);
@@ -1245,7 +1249,7 @@ void pinCurrentLead() {
     pinnedLeadSite = currentSite;
     pinnedLead = siteLead[currentSite];
     siteAttention[currentSite] = clampInt(siteAttention[currentSite] + 1, 0, kMaxSiteAttention);
-    char message[180];
+    char message[kMediumCopy];
     snprintf(message, sizeof(message), "You pin the %s at %s. It will survive one dawn, but the site notices.",
              leadName(pinnedLead), sites[pinnedLeadSite].name);
     setStatus(message);
@@ -1257,7 +1261,7 @@ void clearPinnedLeadWithStatus() {
         return;
     }
 
-    char message[160];
+    char message[kMediumCopy];
     snprintf(message, sizeof(message), "You stop guarding the pinned %s at %s.",
              leadName(pinnedLead), sites[pinnedLeadSite].name);
     clearPinnedLead();
@@ -1715,7 +1719,7 @@ void rememberRewardItem(uint8_t itemId) {
 
 // Adds an item to the pack and also records it for the reward summary screen.
 bool grantRewardItem(uint8_t itemId) {
-    char ignored[96];
+    char ignored[kShortCopy];
     const bool added = addItem(itemId, ignored, sizeof(ignored));
     if (added) {
         rememberRewardItem(itemId);
@@ -1947,7 +1951,7 @@ void makeTextFit(const char* text, int32_t maxWidth, char* output, size_t output
     size_t len = strlen(output);
     while (len > 0) {
         output[--len] = '\0';
-        char candidate[384];
+        char candidate[kWrapLineCopy];
         snprintf(candidate, sizeof(candidate), "%s%s", output, suffix);
         if (display.textWidth(candidate) <= maxWidth) {
             snprintf(output, outputSize, "%s", candidate);
@@ -1960,7 +1964,7 @@ void makeTextFit(const char* text, int32_t maxWidth, char* output, size_t output
 
 // Draws a single line that is guaranteed not to overrun its allotted width.
 void drawTextFit(const char* text, int32_t x, int32_t y, int32_t maxWidth, uint16_t color, uint16_t background) {
-    char fitted[320];
+    char fitted[kWrapLineCopy];
     makeTextFit(text, maxWidth, fitted, sizeof(fitted));
     M5.Display.setTextDatum(textdatum_t::top_left);
     M5.Display.setTextColor(color, background);
@@ -1970,7 +1974,7 @@ void drawTextFit(const char* text, int32_t x, int32_t y, int32_t maxWidth, uint1
 // Formats and draws one fitted line, replacing raw printf calls in tight areas.
 void drawFormattedTextFit(int32_t x, int32_t y, int32_t maxWidth, uint16_t color, uint16_t background,
                           const char* format, ...) {
-    char buffer[320];
+    char buffer[kWrapLineCopy];
     va_list args;
     va_start(args, format);
     vsnprintf(buffer, sizeof(buffer), format, args);
@@ -2006,8 +2010,8 @@ void drawWrappedText(const char* text, int32_t x, int32_t y, int32_t w, uint8_t 
     display.setFont(&fonts::Font2);
     display.setTextColor(color, background);
 
-    char line[320] = "";
-    char word[96] = "";
+    char line[kWrapLineCopy] = "";
+    char word[kShortCopy] = "";
     uint8_t wordLen = 0;
     uint8_t lineCount = 0;
     const int32_t lineHeight = 22;
@@ -2019,7 +2023,7 @@ void drawWrappedText(const char* text, int32_t x, int32_t y, int32_t w, uint8_t 
             return;
         }
 
-        char candidate[448];
+        char candidate[kLongCopy];
         if (line[0] == '\0') {
             snprintf(candidate, sizeof(candidate), "%s", word);
         } else {
@@ -2071,8 +2075,8 @@ uint16_t renderPagedWrappedText(const char* text, int32_t x, int32_t y, int32_t 
     display.setFont(&fonts::Font2);
     display.setTextColor(color, background);
 
-    char line[320] = "";
-    char word[96] = "";
+    char line[kWrapLineCopy] = "";
+    char word[kShortCopy] = "";
     uint8_t wordLen = 0;
     uint16_t lineIndex = 0;
     uint8_t drawn = 0;
@@ -2095,7 +2099,7 @@ uint16_t renderPagedWrappedText(const char* text, int32_t x, int32_t y, int32_t 
             return;
         }
 
-        char candidate[448];
+        char candidate[kLongCopy];
         if (line[0] == '\0') {
             snprintf(candidate, sizeof(candidate), "%s", word);
         } else {
@@ -2321,7 +2325,7 @@ void drawActionForecast(int32_t x, int32_t y, int32_t w, int32_t h) {
                          sites[currentSite].maxCache, siteIntel[currentSite], kMaxSiteIntel,
                          siteAttention[currentSite], kMaxSiteAttention);
     drawFormattedTextFit(x + 16, y + 66, w - 32, rgb(150, 168, 170), bg, "lead: %s", leadName(siteLead[currentSite]));
-    char synopsis[260];
+    char synopsis[kMediumCopy];
     buildAreaPressureSynopsis(synopsis, sizeof(synopsis));
     drawWrappedText(synopsis, x + 16, y + 84, w - 32, 2, rgb(178, 198, 194), bg);
 
@@ -2339,7 +2343,7 @@ void drawActionForecast(int32_t x, int32_t y, int32_t w, int32_t h) {
         }
         const uint8_t safeChance = chanceForThreshold(skill, target);
         const uint8_t partialChance = chanceForThreshold(skill, target - 2);
-        char abilityPreview[220];
+        char abilityPreview[kMediumCopy];
         describeActionAbilities(action, siteLead[currentSite], abilityPreview, sizeof(abilityPreview));
 
         display.fillRoundRect(x + 14, rowY, w - 28, 86, 6, rowBg);
@@ -2654,7 +2658,7 @@ void startNewDay(const char* lead) {
         tarTapeSpent[i] = false;
     }
 
-    char bill[96];
+    char bill[kShortCopy];
     const int16_t billValue = dailyUpkeepValue();
     const bool otherPaid = otherRunnerPaysDawnBill();
     if (otherPaid) {
@@ -2674,10 +2678,10 @@ void startNewDay(const char* lead) {
         }
     }
 
-    char message[320];
+    char message[kLongCopy];
     snprintf(message, sizeof(message), "%s %s", lead, bill);
     if (keptPinnedLead) {
-        char pinNote[140];
+        char pinNote[kShortCopy];
         snprintf(pinNote, sizeof(pinNote), "Pinned lead survives: %s at %s.",
                  leadName(dawnPinnedLead), sites[dawnPinnedSite].name);
         appendAbilityNote(message, sizeof(message), pinNote);
@@ -2714,7 +2718,7 @@ void spendTime(uint8_t ticks) {
         return;
     }
 
-    char lead[128];
+    char lead[kShortCopy];
     if (currentSite != 0) {
         const Stats stats = deriveStats();
         const int16_t risk = effectiveRiskForSite(currentSite);
@@ -2737,7 +2741,7 @@ void applyCollapseScar(uint8_t collapseSite, char* message, size_t messageSize) 
     }
 
     const uint8_t scar = random(0, 4);
-    char note[150];
+    char note[kShortCopy];
     if (scar == 0 && siteLead[collapseSite] != LeadKind::None) {
         siteLead[collapseSite] = LeadKind::None;
         snprintf(note, sizeof(note), "The clinic saves the body. The lead at %s does not wait.",
@@ -2803,7 +2807,7 @@ void checkCollapse() {
     health = 4;
     exposure = 5;
     const int16_t paid = payTradeValue(8);
-    char message[320];
+    char message[kLongCopy];
     snprintf(message, sizeof(message),
              "You wake under clinic lights with your boots still wet. Collapse care took goods worth %d and left the glow in your teeth.",
              paid);
@@ -2832,7 +2836,7 @@ void completeStoryDecision(uint8_t choice) {
     const uint8_t index = storyIndex(arc);
     pendingStoryArc = StoryArc::Count;
 
-    char message[320];
+    char message[kLongCopy];
     if (arc == StoryArc::BatteriesForTheDead) {
         storyStage[index] = 2;
         if (choice == 0) {
@@ -3308,7 +3312,7 @@ void applyFieldEncounterAndRepercussion(UiAction action, OutcomeLevel outcome, L
         return;
     }
 
-    char encounter[190];
+    char encounter[kMediumCopy];
     if (action == UiAction::Explore) {
         snprintf(encounter, sizeof(encounter), "%s", siteExploreEncounterText(actionSite, outcome));
     } else if (action == UiAction::FollowLead) {
@@ -3319,7 +3323,7 @@ void applyFieldEncounterAndRepercussion(UiAction action, OutcomeLevel outcome, L
     }
     appendAbilityNote(message, messageSize, encounter);
 
-    char impact[180];
+    char impact[kMediumCopy];
     snprintf(impact, sizeof(impact), "%s settles at attention %u/%u; cache %u/%u remains.",
              sites[actionSite].name, siteAttention[actionSite], kMaxSiteAttention, siteCache[actionSite],
              sites[actionSite].maxCache);
@@ -3373,10 +3377,10 @@ void resolveFieldAction(UiAction action) {
         ambientDose = clampInt(ambientDose + encounterChoice->doseDelta, 0, 6);
     }
     OutcomeLevel outcome = outcomeForRoll(total, target);
-    char abilityNote[220];
+    char abilityNote[kLongCopy];
     describeActionAbilities(action, lead, abilityNote, sizeof(abilityNote));
     if (encounterChoice != nullptr) {
-        char choiceNote[190];
+        char choiceNote[kMediumCopy];
         snprintf(choiceNote, sizeof(choiceNote), "%s", encounterChoice->impact);
         appendAbilityNote(abilityNote, sizeof(abilityNote), choiceNote);
     }
@@ -3498,7 +3502,7 @@ void resolveFieldAction(UiAction action) {
     exposure = clampInt(exposure + ambientDose, 0, kMaxExposure);
     siteAttention[currentSite] = clampInt(siteAttention[currentSite] + attentionGain, 0, kMaxSiteAttention);
 
-    char message[320];
+    char message[kLongCopy];
     bool keepLeadAfterFollow = false;
     if (action == UiAction::Observe) {
         if (rewardOutcome) {
@@ -3830,7 +3834,7 @@ void travelToSite(uint8_t targetSite) {
     }
 
     int16_t routeDose = routeExposureCost(targetSite, stats);
-    char routeNote[140] = "";
+    char routeNote[kMediumCopy] = "";
     if (equippedCatalogItem(kCalendarOfRainsItem) && !calendarSpent && routeDose > 0) {
         calendarSpent = true;
         const int16_t reroll = clampInt(routeDose + random(-1, 3), 0, 4);
@@ -3854,7 +3858,7 @@ void travelToSite(uint8_t targetSite) {
         exposure = clampInt(exposure + routeDose, 0, kMaxExposure);
     }
 
-    char message[160];
+    char message[kMediumCopy];
     if (equippedCatalogItem(kRoadworkerHuskItem) && (targetSite == 1 || targetSite == 3)) {
         siteAttention[targetSite] = clampInt(siteAttention[targetSite] + 1, 0, kMaxSiteAttention);
     }
@@ -3890,7 +3894,7 @@ void properClinicTreatment() {
     blackIodineGuard = false;
     blueMilkBlurReady = false;
 
-    char message[220];
+    char message[kMediumCopy];
     snprintf(message, sizeof(message),
              "The orderly opens the good cabinet and spends %s. Proper treatment restores body and cuts the glow down.",
              supplyName);
@@ -3914,7 +3918,7 @@ void restOrRetreat() {
     const int16_t paid = payTradeValue(2);
     health = clampInt(health + 3, 0, kMaxHealth);
     exposure = clampInt(exposure - 1, 0, kMaxExposure);
-    char message[160];
+    char message[kMediumCopy];
     snprintf(message, sizeof(message),
              "Cheap rest buys a cot and a dirty drip. Goods worth %d fix what is bleeding; the glow mostly stays.",
              paid);
@@ -4332,7 +4336,7 @@ void drawActionDetailScreen() {
     drawFormattedTextFit(innerX, top + 16, innerW, TFT_WHITE, bg, "%s at %s", actionLabel(action),
                          sites[currentSite].name);
     display.setFont(&fonts::Font2);
-    char detailSubtitle[120];
+    char detailSubtitle[kShortCopy];
     if (enabled) {
         snprintf(detailSubtitle, sizeof(detailSubtitle), "%s / threshold %d", actionCheckText(action), target);
     } else {
@@ -4365,11 +4369,11 @@ void drawActionDetailScreen() {
     drawChanceBar(innerX + 18, detailTop + 302, leftW - 36, "Failure", failChance, rgb(230, 90, 95),
                   rgb(12, 18, 24));
 
-    char synopsis[300];
+    char synopsis[kMediumCopy];
     buildAreaPressureSynopsis(synopsis, sizeof(synopsis));
-    char abilityPreview[260];
+    char abilityPreview[kMediumCopy];
     describeActionAbilities(action, lead, abilityPreview, sizeof(abilityPreview));
-    char focusRead[240];
+    char focusRead[kMediumCopy];
     if (selectedDawnOffer >= 0 && selectedDawnOffer < 3 && dawnOffers[selectedDawnOffer].active) {
         const DawnOffer& offer = dawnOffers[selectedDawnOffer];
         snprintf(focusRead, sizeof(focusRead), "%s at %s. %s",
@@ -4446,7 +4450,7 @@ void drawEncounterScreen() {
     drawWrappedText(encounterBody[0] == '\0' ? sites[currentSite].description : encounterBody, innerX, top + 56,
                     innerW, 3, rgb(210, 222, 214), bg);
 
-    char pressure[220];
+    char pressure[kMediumCopy];
     buildAreaPressureSynopsis(pressure, sizeof(pressure));
     drawWrappedText(pressure, innerX, top + 126, innerW, 2, rgb(150, 168, 170), bg);
     display.drawFastHLine(innerX, top + 178, innerW, rgb(55, 70, 70));
@@ -4478,7 +4482,7 @@ void drawEncounterScreen() {
         drawWrappedText(choice.text, x + 34, y + 42, cardW - 68, 2,
                         choice.enabled ? rgb(190, 208, 204) : rgb(110, 115, 120), cardBg);
 
-        char rules[180];
+        char rules[kMediumCopy];
         if (!choice.enabled && choice.requiredItem != kNoItemRequirement) {
             snprintf(rules, sizeof(rules), "Missing: %s.", itemCatalog[choice.requiredItem].name);
         } else {
@@ -5250,7 +5254,7 @@ void drawItemDetailScreen() {
     if (readLines < 1) {
         readLines = 1;
     }
-    char readText[640];
+    char readText[kLongCopy];
     snprintf(readText, sizeof(readText), "%s\n\n%s", item.description, item.fieldRead);
     const uint16_t totalReadLines =
         renderPagedWrappedText(readText, readX + 12, readBoxY + 10, readW - 24, readLines, 0,
