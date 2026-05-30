@@ -204,6 +204,8 @@ char dialogueBody[360] = "";
 bool dialogueQueued = false;
 Screen dialogueNextScreen = Screen::Field;
 uint16_t dialogueAccent = 0;
+uint8_t fieldScenePage = 0;
+uint8_t fieldSignalPage = 0;
 
 const uint8_t tradeStock[kTradeStockCount] = {kBatteryCellItem,        kCleanWaterItem,      kMedPackItem,
                                               kIodineAmpouleItem,      kCannedCoffeeItem,    kGhostTeaAmpouleItem,
@@ -1558,6 +1560,7 @@ bool canTravelToSite(uint8_t targetSite) {
 void setStatus(const char* text) {
     strncpy(statusLine, text, sizeof(statusLine) - 1);
     statusLine[sizeof(statusLine) - 1] = '\0';
+    fieldSignalPage = 0;
     Serial.println(statusLine);
     screenDirty = true;
 }
@@ -2116,6 +2119,18 @@ uint16_t renderPagedWrappedText(const char* text, int32_t x, int32_t y, int32_t 
     return lineIndex;
 }
 
+uint8_t maxPageForWrappedLines(uint16_t totalLines, uint8_t pageLines) {
+    if (pageLines == 0 || totalLines <= pageLines) {
+        return 0;
+    }
+    return static_cast<uint8_t>((totalLines - 1) / pageLines);
+}
+
+uint8_t wrappedLinesForHeight(int32_t h, uint8_t minLines, uint8_t maxLines) {
+    const int32_t lines = h / 22;
+    return static_cast<uint8_t>(clampInt(lines, minLines, maxLines));
+}
+
 // Draws a labeled meter for body, exposure, and clock pressure.
 void drawMeter(int32_t x, int32_t y, int32_t w, int32_t h, int value, int maxValue, uint16_t color, const char* label) {
     auto& display = M5.Display;
@@ -2592,6 +2607,7 @@ void startNewDay(const char* lead) {
     ++day;
     timeTick = 0;
     currentSite = 0;
+    fieldScenePage = 0;
     const uint8_t dawnPinnedSite = pinnedLeadSite;
     const LeadKind dawnPinnedLead = pinnedLead;
     const bool keptPinnedLead = coolSitesForNewDay();
@@ -2741,6 +2757,7 @@ void checkCollapse() {
             --siteCache[currentSite];
         }
         currentSite = 0;
+        fieldScenePage = 0;
         const char* message =
             "The Mercy Bell rings without a clapper. You collapse at the clinic door and the site loses a cache.";
         setStatus(message);
@@ -2762,6 +2779,7 @@ void checkCollapse() {
 
     const uint8_t collapseSite = currentSite;
     currentSite = 0;
+    fieldScenePage = 0;
     timeTick = 0;
     if (coolSitesForNewDay()) {
         clearPinnedLead();
@@ -3674,6 +3692,7 @@ void resolveFieldAction(UiAction action) {
                 flareHookSpent = true;
                 wound = 0;
                 currentSite = 0;
+                fieldScenePage = 0;
                 appendAbilityNote(abilityNote, sizeof(abilityNote),
                                   "The Flare Hook turns the bad trail into a forced retreat instead of a wound.");
             }
@@ -3813,6 +3832,7 @@ void travelToSite(uint8_t targetSite) {
     }
     currentSite = targetSite;
     selectedMapSite = targetSite;
+    fieldScenePage = 0;
     if (currentSite != 0) {
         exposure = clampInt(exposure + routeDose, 0, kMaxExposure);
     } else {
@@ -3867,6 +3887,7 @@ void properClinicTreatment() {
 void restOrRetreat() {
     if (currentSite != 0) {
         currentSite = 0;
+        fieldScenePage = 0;
         exposure = clampInt(exposure + 1, 0, kMaxExposure);
         setStatus("You cut the run short and spend time limping back to the clinic before the rain gets clever.");
         spendTime(actionTimeCost(UiAction::Rest));
@@ -4033,6 +4054,26 @@ void handleAction(UiAction action, int16_t param) {
             ++itemTextPage;
             screenDirty = true;
             break;
+        case UiAction::FieldScenePrev:
+            if (fieldScenePage > 0) {
+                --fieldScenePage;
+                screenDirty = true;
+            }
+            break;
+        case UiAction::FieldSceneNext:
+            ++fieldScenePage;
+            screenDirty = true;
+            break;
+        case UiAction::FieldSignalPrev:
+            if (fieldSignalPage > 0) {
+                --fieldSignalPage;
+                screenDirty = true;
+            }
+            break;
+        case UiAction::FieldSignalNext:
+            ++fieldSignalPage;
+            screenDirty = true;
+            break;
         case UiAction::OpenTrade:
             if (tradeAvailableHere()) {
                 resetTradeSelections();
@@ -4120,20 +4161,63 @@ void drawFieldScreen() {
     display.setFont(&fonts::Font4);
     drawTextFit(sites[currentSite].name, centerX + 18, top + 18, centerW - 36, TFT_WHITE, panelBg);
     display.setFont(&fonts::Font2);
-    drawTextFit(sites[currentSite].district, centerX + 20, top + 52, centerW - 40, rgb(155, 175, 175), panelBg);
-    drawWrappedText(sites[currentSite].description, centerX + 20, top + 88, centerW - 40, 3, rgb(210, 218, 210),
-                    panelBg);
+    const int32_t textX = centerX + 20;
+    const int32_t textW = centerW - 40;
+    const int32_t sceneY = top + 86;
+    const uint8_t sceneLines = wrappedLinesForHeight(118, 3, 5);
+    const uint16_t sceneTotal =
+        renderPagedWrappedText(sites[currentSite].description, textX, sceneY, textW, sceneLines, 0,
+                               rgb(210, 218, 210), panelBg, false);
+    const uint8_t sceneMaxPage = maxPageForWrappedLines(sceneTotal, sceneLines);
+    if (fieldScenePage > sceneMaxPage) {
+        fieldScenePage = sceneMaxPage;
+    }
+    drawTextFit(sites[currentSite].district, textX, top + 52, sceneMaxPage > 0 ? textW - 180 : textW,
+                rgb(155, 175, 175), panelBg);
+    if (sceneMaxPage > 0) {
+        drawFormattedTextFit(centerX + centerW - 172, top + 52, 48, rgb(150, 168, 170), panelBg, "%u/%u",
+                             static_cast<unsigned>(fieldScenePage + 1), static_cast<unsigned>(sceneMaxPage + 1));
+        addButton("Prev", centerX + centerW - 118, top + 46, 48, 32, UiAction::FieldScenePrev, 0,
+                  sites[currentSite].color, fieldScenePage > 0);
+        addButton("Next", centerX + centerW - 66, top + 46, 48, 32, UiAction::FieldSceneNext, 0,
+                  sites[currentSite].color, fieldScenePage < sceneMaxPage);
+    }
+    renderPagedWrappedText(sites[currentSite].description, textX, sceneY, textW, sceneLines,
+                           static_cast<uint16_t>(fieldScenePage) * sceneLines, rgb(210, 218, 210), panelBg, true);
+
+    const int32_t metricsY = sceneY + sceneLines * 22 + 18;
     display.setFont(&fonts::Font2);
-    drawFormattedTextFit(centerX + 20, top + 156, centerW - 40, rgb(180, 210, 205), panelBg,
+    drawFormattedTextFit(textX, metricsY, textW, rgb(180, 210, 205), panelBg,
                          "risk %d  cache %u  intel %u  attention %u", effectiveRiskForSite(currentSite),
                          siteCache[currentSite], siteIntel[currentSite], siteAttention[currentSite]);
-    drawFormattedTextFit(centerX + 20, top + 176, centerW - 40, rgb(180, 210, 205), panelBg, "lead: %s",
+    drawFormattedTextFit(textX, metricsY + 22, textW, rgb(180, 210, 205), panelBg, "lead: %s",
                          leadName(siteLead[currentSite]));
 
-    display.drawFastHLine(centerX + 18, top + 198, centerW - 36, rgb(55, 70, 70));
+    const int32_t signalRuleY = metricsY + 48;
+    display.drawFastHLine(centerX + 18, signalRuleY, centerW - 36, rgb(55, 70, 70));
     display.setFont(&fonts::Font4);
-    drawTextFit("Last Signal", centerX + 18, top + 222, centerW - 36, rgb(130, 230, 200), panelBg);
-    drawWrappedText(statusLine, centerX + 20, top + 266, centerW - 40, 4, TFT_WHITE, panelBg);
+    const int32_t signalTitleY = signalRuleY + 22;
+    drawTextFit("Last Signal", centerX + 18, signalTitleY, centerW - 36, rgb(130, 230, 200), panelBg);
+    const int32_t signalTextY = signalTitleY + 44;
+    const int32_t signalBottom = top + contentH - 18;
+    const uint8_t signalLines = wrappedLinesForHeight(signalBottom - signalTextY, 4, 12);
+    const uint16_t signalTotal = renderPagedWrappedText(statusLine, textX, signalTextY, textW, signalLines, 0,
+                                                        TFT_WHITE, panelBg, false);
+    const uint8_t signalMaxPage = maxPageForWrappedLines(signalTotal, signalLines);
+    if (fieldSignalPage > signalMaxPage) {
+        fieldSignalPage = signalMaxPage;
+    }
+    if (signalMaxPage > 0) {
+        display.setFont(&fonts::Font2);
+        drawFormattedTextFit(centerX + centerW - 172, signalTitleY + 2, 48, rgb(150, 168, 170), panelBg, "%u/%u",
+                             static_cast<unsigned>(fieldSignalPage + 1), static_cast<unsigned>(signalMaxPage + 1));
+        addButton("Prev", centerX + centerW - 118, signalTitleY - 4, 48, 32, UiAction::FieldSignalPrev, 0,
+                  rgb(130, 230, 200), fieldSignalPage > 0);
+        addButton("Next", centerX + centerW - 66, signalTitleY - 4, 48, 32, UiAction::FieldSignalNext, 0,
+                  rgb(130, 230, 200), fieldSignalPage < signalMaxPage);
+    }
+    renderPagedWrappedText(statusLine, textX, signalTextY, textW, signalLines,
+                           static_cast<uint16_t>(fieldSignalPage) * signalLines, TFT_WHITE, panelBg, true);
 
     const int32_t buttonY = height - bottomH;
     const int32_t gap = 10;
@@ -5312,20 +5396,20 @@ void drawRewardScreen() {
     display.setFont(&fonts::Font4);
     drawTextFit(rewardTitle[0] == '\0' ? "Field Note" : rewardTitle, margin + 18, top + 16, width - 72,
                 TFT_WHITE, bg);
-    drawWrappedText(rewardSummary[0] == '\0' ? statusLine : rewardSummary, margin + 20, top + 58, width - 76, 3,
+    drawWrappedText(rewardSummary[0] == '\0' ? statusLine : rewardSummary, margin + 20, top + 58, width - 76, 4,
                     rgb(210, 222, 214), bg);
     if (rewardChanged[0] != '\0') {
-        drawWrappedText(rewardChanged, margin + 20, top + 122, width - 76, 2, rgb(230, 180, 70), bg);
+        drawWrappedText(rewardChanged, margin + 20, top + 150, width - 76, 2, rgb(230, 180, 70), bg);
     }
     if (rewardNext[0] != '\0') {
-        drawWrappedText(rewardNext, margin + 20, top + 174, width - 76, 2, rgb(130, 230, 200), bg);
+        drawWrappedText(rewardNext, margin + 20, top + 202, width - 76, 2, rgb(130, 230, 200), bg);
     }
 
     display.setFont(&fonts::Font4);
-    drawTextFit("Recovered", margin + 20, top + 218, width - 76, rgb(130, 230, 200), bg);
+    drawTextFit("Recovered", margin + 20, top + 246, width - 76, rgb(130, 230, 200), bg);
     if (rewardCount == 0) {
         display.setFont(&fonts::Font2);
-        drawTextFit("Nothing fits your hands. Sometimes the Zone pays in information.", margin + 22, top + 260,
+        drawTextFit("Nothing fits your hands. Sometimes the Zone pays in information.", margin + 22, top + 288,
                     width - 80, rgb(160, 178, 174), bg);
     }
 
@@ -5335,7 +5419,7 @@ void drawRewardScreen() {
         const int32_t col = i % 4;
         const int32_t row = i / 4;
         const int32_t cardX = margin + 20 + col * (cardW + 12);
-        const int32_t cardY = top + 258 + row * 112;
+        const int32_t cardY = top + 286 + row * 112;
         display.fillRoundRect(cardX, cardY, cardW, 96, 6, rgb(12, 18, 22));
         display.drawRoundRect(cardX, cardY, cardW, 96, 6, item.color);
         drawMiniItemIcon(item, cardX + 12, cardY + 16, 56, false);
@@ -5671,6 +5755,8 @@ void initializeColors() {
 // Seeds the starting game state, inventory, equipment, and site caches.
 void initializeGame() {
     itemTextPage = 0;
+    fieldScenePage = 0;
+    fieldSignalPage = 0;
     selectedActionDetail = UiAction::Observe;
     pendingEncounterAction = UiAction::Explore;
     activeEncounterChoice = -1;
