@@ -27,6 +27,8 @@ constexpr int16_t kDailyUpkeepValue = 4;
 constexpr uint8_t kMaxRewardItems = 12;
 constexpr uint8_t kTradeStockCount = 8;
 constexpr uint8_t kTradeRowsPerPage = 6;
+constexpr uint8_t kMaxEncounterChoices = 4;
+constexpr uint8_t kNoItemRequirement = 255;
 constexpr uint8_t kBatteryCellItem = 15;
 constexpr uint8_t kCleanWaterItem = 16;
 constexpr uint8_t kMedPackItem = 17;
@@ -110,6 +112,20 @@ struct DawnOffer {
     char hook[132] = "";
 };
 
+struct RuntimeEncounterChoice {
+    char label[34] = "";
+    char text[190] = "";
+    char impact[160] = "";
+    uint8_t requiredItem = kNoItemRequirement;
+    int8_t skillDelta = 0;
+    int8_t targetDelta = 0;
+    int8_t doseDelta = 0;
+    int8_t attentionDelta = 0;
+    int8_t timeDelta = 0;
+    bool enabled = true;
+    bool consumesItem = false;
+};
+
 // Runtime state is intentionally plain globals because the Arduino loop is a
 // single-scene program and redraws from this state directly.
 Screen currentScreen = Screen::Field;
@@ -120,6 +136,8 @@ uint8_t currentSite = 0;
 uint8_t selectedMapSite = 1;
 int16_t selectedInventorySlot = 0;
 UiAction selectedActionDetail = UiAction::Observe;
+UiAction pendingEncounterAction = UiAction::Explore;
+int8_t activeEncounterChoice = -1;
 int8_t selectedDawnOffer = -1;
 uint8_t pinnedLeadSite = 255;
 LeadKind pinnedLead = LeadKind::None;
@@ -138,6 +156,10 @@ bool tradeWantSelected[kTradeStockCount];
 uint8_t rewardItems[kMaxRewardItems];
 uint8_t rewardCount = 0;
 DawnOffer dawnOffers[3];
+RuntimeEncounterChoice encounterChoices[kMaxEncounterChoices];
+uint8_t encounterChoiceCount = 0;
+char encounterTitle[90] = "";
+char encounterBody[420] = "";
 bool packOverflowed = false;
 Button buttons[kMaxButtons];
 uint8_t buttonCount = 0;
@@ -191,6 +213,7 @@ const uint8_t tradeStock[kTradeStockCount] = {kBatteryCellItem,        kCleanWat
 int16_t dailyUpkeepValue();
 void setStatus(const char* text);
 bool packHasRoom();
+void resolveFieldAction(UiAction action);
 
 // Converts 8-bit RGB values to the display's 16-bit color format.
 uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
@@ -1585,6 +1608,24 @@ bool hasCatalogItem(uint8_t itemId) {
     return false;
 }
 
+int16_t firstInventorySlotForCatalogItem(uint8_t itemId) {
+    for (uint8_t i = 0; i < kInventoryCapacity; ++i) {
+        if (inventory[i] == itemId) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+bool consumeCatalogItem(uint8_t itemId) {
+    const int16_t slot = firstInventorySlotForCatalogItem(itemId);
+    if (slot < 0 || isEquippedInventorySlot(static_cast<uint8_t>(slot))) {
+        return false;
+    }
+    removeInventorySlot(static_cast<uint8_t>(slot));
+    return true;
+}
+
 // Counts valid inventory entries; paging uses this so the pack can grow without
 // drawing rows beyond the visible screen.
 uint8_t inventoryItemCount() {
@@ -1652,6 +1693,14 @@ void clearReward() {
     rewardSummary[0] = '\0';
     rewardChanged[0] = '\0';
     rewardNext[0] = '\0';
+}
+
+bool activeEncounterChoiceValid() {
+    return activeEncounterChoice >= 0 && activeEncounterChoice < static_cast<int8_t>(encounterChoiceCount);
+}
+
+RuntimeEncounterChoice* selectedEncounterChoice() {
+    return activeEncounterChoiceValid() ? &encounterChoices[activeEncounterChoice] : nullptr;
 }
 
 // Records a received item so the reward screen can show it with an icon.
@@ -2929,6 +2978,209 @@ void advanceStoryArcs(UiAction action, OutcomeLevel outcome, LeadKind lead, char
     advancePersonWhoNeverEntered(action, outcome, lead, message, messageSize);
 }
 
+void clearEncounterChoices() {
+    encounterChoiceCount = 0;
+    activeEncounterChoice = -1;
+    encounterTitle[0] = '\0';
+    encounterBody[0] = '\0';
+}
+
+void addEncounterChoice(const char* label, const char* text, const char* impact, int8_t skillDelta,
+                        int8_t targetDelta, int8_t doseDelta, int8_t attentionDelta, int8_t timeDelta,
+                        bool enabled = true, uint8_t requiredItem = kNoItemRequirement, bool consumesItem = false) {
+    if (encounterChoiceCount >= kMaxEncounterChoices) {
+        return;
+    }
+
+    RuntimeEncounterChoice& choice = encounterChoices[encounterChoiceCount++];
+    snprintf(choice.label, sizeof(choice.label), "%s", label);
+    snprintf(choice.text, sizeof(choice.text), "%s", text);
+    snprintf(choice.impact, sizeof(choice.impact), "%s", impact);
+    choice.requiredItem = requiredItem;
+    choice.skillDelta = skillDelta;
+    choice.targetDelta = targetDelta;
+    choice.doseDelta = doseDelta;
+    choice.attentionDelta = attentionDelta;
+    choice.timeDelta = timeDelta;
+    choice.enabled = enabled;
+    choice.consumesItem = consumesItem;
+}
+
+const char* siteScenePrompt(uint8_t siteIndex, UiAction action, LeadKind lead) {
+    if (action == UiAction::Observe) {
+        if (siteIndex == 1) {
+            return "You settle under a broken advert board. Cameras pan over tarp roofs while vendors pretend not to count your breaths.";
+        }
+        if (siteIndex == 2) {
+            return "You crouch above black water. Somewhere below, the Mall PA tests a dead speaker with your pulse.";
+        }
+        if (siteIndex == 3) {
+            return "You wait among antenna shadows. The cabinets tick like teeth cooling after a meal.";
+        }
+        if (siteIndex == 4) {
+            return "The reeds move late, after the wind is gone. A road sign points toward a road that has not admitted existing.";
+        }
+        return "You take a long read of the place and let the easy lies pass first.";
+    }
+    if (action == UiAction::Explore) {
+        if (siteIndex == 1) {
+            return "A half-shuttered stall leaks blue light and battery stink. Two routes lead in: public and loud, or wet and close to the cameras.";
+        }
+        if (siteIndex == 2) {
+            return "A pharmacy shutter hangs open over waist-high water. Labels drift inside like tiny white fish.";
+        }
+        if (siteIndex == 3) {
+            return "A relay cabinet has opened itself. The floor around it is dry, which is the first bad sign.";
+        }
+        if (siteIndex == 4) {
+            return "The reeds part around a strip of old road. Something has left a clean box of salvage in the centre, as if setting a table.";
+        }
+        return "The site offers a way in, and does not bother pretending it is safe.";
+    }
+
+    if (lead == LeadKind::Contact) {
+        return "The contact waits where sightlines cross badly. They know a route, or a price, or a lie with practical value.";
+    }
+    if (lead == LeadKind::Cache) {
+        return "The cache sits behind scrape marks and fresh runoff. Someone hid it in a hurry and left the place listening.";
+    }
+    if (lead == LeadKind::Anomaly) {
+        return "The wrong-light gathers in a corner your eyes keep skipping. Every tool in your kit feels slightly heavier.";
+    }
+    if (lead == LeadKind::Door) {
+        return "The service door still has power behind it. The lock face is wet, warm, and very sure of itself.";
+    }
+    if (lead == LeadKind::Trail) {
+        return "A cleaner footpath bends through the worst ground. It looks useful enough to be bait.";
+    }
+    return "The lead is thin, but not gone. The choice is how much of yourself to put behind it.";
+}
+
+void addItemAwareEncounterChoices(UiAction action, LeadKind lead) {
+    if (action == UiAction::Observe) {
+        addEncounterChoice("Wait It Out", "Let the scene repeat until the false rhythms expose themselves.",
+                           "Choice: safer read, lower dose, but no shortcut.", 1, 0, -1, 0, 0);
+        addEncounterChoice("Push The Read", "Move closer before the pattern settles. The reward may be clearer, if you are.",
+                           "Choice: lower target, higher dose and attention.", 0, -1, 1, 1, 0);
+        const bool hasDetector = equippedCatalogItem(kCoilDetectorItem) || equippedCatalogItem(kGlassNeedleItem) ||
+                                 equippedCatalogItem(kMothCompassItem) || equippedCatalogItem(kRainCounterItem) ||
+                                 equippedCatalogItem(kDeadPagerItem);
+        addEncounterChoice("Trust Detector", "Let the kit decide which detail is lying first.",
+                           hasDetector ? "Choice: detector-assisted read." : "Needs an equipped detector.",
+                           2, -1, 0, 0, 0, hasDetector);
+        addEncounterChoice("Stay Invisible", "Read from bad cover and leave no obvious shape behind.",
+                           "Choice: attention stays lower, but the check is harder.", -1, 1, 0, -1, 0);
+        return;
+    }
+
+    if (action == UiAction::Explore) {
+        addEncounterChoice("Sweep Edges", "Work the perimeter and leave the obvious prize alone until last.",
+                           "Choice: safer and quieter, but costs another two hours.", 0, 1, -1, -1, 1);
+        addEncounterChoice("Cut Straight In", "Cross the open ground before fear catches up.",
+                           "Choice: faster pressure, louder consequences.", 1, 0, 1, 2, 0);
+        const bool hasTool = equippedCatalogItem(kPrybarKitItem) || equippedCatalogItem(kSolderRigItem) ||
+                             equippedCatalogItem(kMercyBoltCutterItem) || equippedCatalogItem(kServiceWormItem);
+        addEncounterChoice("Use The Tool", "Let your kit turn the obstacle into a method.",
+                           hasTool ? "Choice: tool-assisted approach." : "Needs a relevant equipped tool.", 2, -1, 0,
+                           hasTool && equippedCatalogItem(kSolderRigItem) ? -1 : 1, 0, hasTool);
+        const bool hasBattery = hasCatalogItem(kBatteryCellItem);
+        addEncounterChoice("Spend Battery", "Burn a cell to wake a dead panel or blind a cheap alarm.",
+                           hasBattery ? "Choice: consumes Battery Cell, lowers attention." : "Needs Battery Cell.", 1,
+                           -1, 0, -2, 0, hasBattery, kBatteryCellItem, true);
+        return;
+    }
+
+    addEncounterChoice("Take It Slow", "Follow the lead on its own terms and accept the time it demands.",
+                       "Choice: steady approach, modest benefit.", 1, 0, 0, 0, 0);
+    addEncounterChoice("Force It", "Solve the problem before it finishes becoming one.",
+                       "Choice: stronger push, more exposure and attention.", 2, 0, 1, 2, 0);
+
+    if (lead == LeadKind::Anomaly) {
+        const bool hasIodine = hasCatalogItem(kIodineAmpouleItem) || hasCatalogItem(kBlackIodineStripItem);
+        const uint8_t item = hasCatalogItem(kBlackIodineStripItem) ? kBlackIodineStripItem : kIodineAmpouleItem;
+        addEncounterChoice("Dose First", "Stain the mouth before touching the impossible edge.",
+                           hasIodine ? "Choice: consumes anti-rad dose, steadies anomaly work."
+                                     : "Needs Iodine or Black Iodine.",
+                           2, -2, -2, 0, 0, hasIodine, item, true);
+    } else if (lead == LeadKind::Contact) {
+        const bool hasTea = hasCatalogItem(kGhostTeaAmpouleItem);
+        addEncounterChoice("Drink Ghost Tea", "Arrive as someone easier to forget.",
+                           hasTea ? "Choice: consumes Ghost Tea, safer contact." : "Needs Ghost Tea.", 2, -1, 0,
+                           -2, 0, hasTea, kGhostTeaAmpouleItem, true);
+    } else if (lead == LeadKind::Trail) {
+        const bool hasSalt = hasCatalogItem(kFenceRunnersSaltItem);
+        addEncounterChoice("Salt The Gloves", "Make your hands remember fences the path has not shown you yet.",
+                           hasSalt ? "Choice: consumes Fence Runner's Salt, cleaner trail." : "Needs Fence Runner's Salt.",
+                           2, -1, -1, -1, 0, hasSalt, kFenceRunnersSaltItem, true);
+    } else if (lead == LeadKind::Door) {
+        const bool hasDoorTool = equippedCatalogItem(kSolderRigItem) || equippedCatalogItem(kRainKeyItem) ||
+                                 equippedCatalogItem(kPrybarKitItem) || equippedCatalogItem(kMercyBoltCutterItem);
+        addEncounterChoice("Work The Lock", "Use the kit's favourite kind of violence.",
+                           hasDoorTool ? "Choice: door tool opens a cleaner line." : "Needs a door-capable tool.",
+                           2, -1, 0, equippedCatalogItem(kPrybarKitItem) ? 1 : -1, 0, hasDoorTool);
+    } else {
+        const bool hasWater = hasCatalogItem(kCleanWaterItem);
+        addEncounterChoice("Spend Water", "Wash grit from the find before it gets into your hands and lungs.",
+                           hasWater ? "Choice: consumes Clean Water, lowers exposure." : "Needs Clean Water.", 1, -1,
+                           -2, 0, 0, hasWater, kCleanWaterItem, true);
+    }
+
+    addEncounterChoice("Mark And Leave", "Take the smallest useful truth and do not force the rest.",
+                       "Choice: harder to profit, quieter if it works.", -1, 1, -1, -2, 0);
+}
+
+void buildEncounterForAction(UiAction action) {
+    clearEncounterChoices();
+    pendingEncounterAction = action;
+    const LeadKind lead = siteLead[currentSite];
+    snprintf(encounterTitle, sizeof(encounterTitle), "%s: %s", actionLabel(action), sites[currentSite].name);
+    snprintf(encounterBody, sizeof(encounterBody), "%s", siteScenePrompt(currentSite, action, lead));
+    addItemAwareEncounterChoices(action, lead);
+}
+
+void applyEncounterItemUse(const RuntimeEncounterChoice& choice) {
+    if (!choice.consumesItem || choice.requiredItem == kNoItemRequirement) {
+        return;
+    }
+    if (!consumeCatalogItem(choice.requiredItem)) {
+        return;
+    }
+
+    if (choice.requiredItem == kIodineAmpouleItem) {
+        exposure = clampInt(exposure - 3, 0, kMaxExposure);
+        iodineShieldReady = true;
+    } else if (choice.requiredItem == kBlackIodineStripItem) {
+        exposure = clampInt(exposure - 2, 0, kMaxExposure);
+        blackIodineGuard = true;
+    } else if (choice.requiredItem == kGhostTeaAmpouleItem) {
+        ghostTeaSite = currentSite;
+    } else if (choice.requiredItem == kFenceRunnersSaltItem) {
+        fenceSaltReady = true;
+    } else if (choice.requiredItem == kCleanWaterItem) {
+        exposure = clampInt(exposure - 1, 0, kMaxExposure);
+    }
+}
+
+void openEncounterForAction(UiAction action) {
+    if (!fieldActionAvailable(action)) {
+        setStatus("That move is not open right now. Either the site is dry, the light is wrong, or you need a lead.");
+        return;
+    }
+    buildEncounterForAction(action);
+    currentScreen = Screen::Encounter;
+    screenDirty = true;
+}
+
+void chooseEncounter(uint8_t index) {
+    if (index >= encounterChoiceCount || !encounterChoices[index].enabled) {
+        return;
+    }
+    activeEncounterChoice = static_cast<int8_t>(index);
+    applyEncounterItemUse(encounterChoices[index]);
+    resolveFieldAction(pendingEncounterAction);
+    activeEncounterChoice = -1;
+}
+
 const char* siteExploreEncounterText(uint8_t siteIndex, OutcomeLevel outcome) {
     if (siteIndex == 1) {
         return outcome == OutcomeLevel::Failure
@@ -3040,13 +3292,27 @@ void resolveFieldAction(UiAction action) {
     const LeadKind lead = siteLead[currentSite];
     char actionTitle[24];
     snprintf(actionTitle, sizeof(actionTitle), "%s", actionLabel(action));
-    const int16_t skill = actionSkill(action, stats);
-    const int16_t target = actionTarget(action);
+    RuntimeEncounterChoice* encounterChoice = selectedEncounterChoice();
+    int16_t skill = actionSkill(action, stats);
+    int16_t target = actionTarget(action);
+    if (encounterChoice != nullptr) {
+        skill += encounterChoice->skillDelta;
+        target += encounterChoice->targetDelta;
+    }
+    target = clampInt(target, 3, 12);
     const int16_t total = skill + random(1, 7);
     int16_t ambientDose = actionExposureCost(action, stats);
+    if (encounterChoice != nullptr) {
+        ambientDose = clampInt(ambientDose + encounterChoice->doseDelta, 0, 6);
+    }
     OutcomeLevel outcome = outcomeForRoll(total, target);
     char abilityNote[220];
     describeActionAbilities(action, lead, abilityNote, sizeof(abilityNote));
+    if (encounterChoice != nullptr) {
+        char choiceNote[190];
+        snprintf(choiceNote, sizeof(choiceNote), "Choice: %s. %s", encounterChoice->label, encounterChoice->impact);
+        appendAbilityNote(abilityNote, sizeof(abilityNote), choiceNote);
+    }
     if (outcome == OutcomeLevel::Full && exposure >= 10 && !exposureProtectionActive()) {
         outcome = OutcomeLevel::Success;
         appendAbilityNote(abilityNote, sizeof(abilityNote),
@@ -3116,6 +3382,9 @@ void resolveFieldAction(UiAction action) {
 
     const bool rewardOutcome = outcomeHasReward(outcome);
     uint8_t attentionGain = actionAttentionGain(action, rewardOutcome);
+    if (encounterChoice != nullptr) {
+        attentionGain = clampInt(attentionGain + encounterChoice->attentionDelta, 0, kMaxSiteAttention);
+    }
     if (outcome == OutcomeLevel::Partial) {
         ambientDose = clampInt(ambientDose + 1, 0, 6);
         attentionGain = clampInt(attentionGain + 1, 0, kMaxSiteAttention);
@@ -3417,6 +3686,9 @@ void resolveFieldAction(UiAction action) {
     }
 
     uint8_t spentTicks = actionTimeCost(action);
+    if (encounterChoice != nullptr) {
+        spentTicks = static_cast<uint8_t>(clampInt(spentTicks + encounterChoice->timeDelta, 0, maxTimeTicksForDay()));
+    }
     if (action == UiAction::Observe && sleeplessMintReady && spentTicks > 0) {
         --spentTicks;
         sleeplessMintReady = false;
@@ -3462,6 +3734,9 @@ void resolveFieldAction(UiAction action) {
              "Changed: %s at %s; time -%uh, exposure +%d, attention +%u.",
              outcomeName(outcome), site.name, static_cast<unsigned>(spentTicks * kTickHours), ambientDose,
              static_cast<unsigned>(attentionGain));
+    if (encounterChoice != nullptr) {
+        appendAbilityNote(rewardChanged, sizeof(rewardChanged), encounterChoice->impact);
+    }
     applyFieldEncounterAndRepercussion(action, outcome, lead, actionSite, message, sizeof(message));
     pendingStoryArc = StoryArc::Count;
     advanceStoryArcs(action, outcome, lead, message, sizeof(message));
@@ -3649,7 +3924,7 @@ void handleAction(UiAction action, int16_t param) {
         case UiAction::Observe:
         case UiAction::Explore:
         case UiAction::FollowLead:
-            resolveFieldAction(action);
+            openEncounterForAction(action);
             break;
         case UiAction::Inventory:
             currentScreen = Screen::Inventory;
@@ -3666,6 +3941,9 @@ void handleAction(UiAction action, int16_t param) {
             break;
         case UiAction::ChooseStory:
             completeStoryDecision(static_cast<uint8_t>(param));
+            break;
+        case UiAction::ChooseEncounter:
+            chooseEncounter(static_cast<uint8_t>(param));
             break;
         case UiAction::OpenActionDetail:
             selectedActionDetail = static_cast<UiAction>(param);
@@ -4005,9 +4283,94 @@ void drawActionDetailScreen() {
     const bool currentPin = hasPinnedLead() && pinnedLeadSite == currentSite && pinnedLead == lead;
     addButton(currentPin ? "Clear Pin" : "Pin Lead", margin + 318, buttonY + 8, 160, 52,
               currentPin ? UiAction::ClearPinnedLead : UiAction::PinLead, 0, rgb(220, 90, 190), canPin || currentPin);
-    char executeLabel[32];
-    snprintf(executeLabel, sizeof(executeLabel), "%s Now", actionLabel(action));
-    addButton(executeLabel, width - margin - 230, buttonY + 8, 230, 52, action, 0, accent, enabled);
+    addButton("Choose Approach", width - margin - 230, buttonY + 8, 230, 52, action, 0, accent, enabled);
+
+    for (uint8_t i = 0; i < buttonCount; ++i) {
+        drawButton(buttons[i]);
+    }
+}
+
+// Draws the choose-your-own-adventure scene that sits between intent and roll.
+void drawEncounterScreen() {
+    if (currentSite == 0 || encounterChoiceCount == 0) {
+        currentScreen = Screen::Field;
+        drawFieldScreen();
+        return;
+    }
+
+    auto& display = M5.Display;
+    clearButtons();
+    display.fillScreen(rgb(3, 6, 9));
+    drawHeader();
+
+    const int32_t width = display.width();
+    const int32_t height = display.height();
+    const int32_t margin = 18;
+    const int32_t top = 82;
+    const int32_t bottomH = 72;
+    const int32_t panelH = height - top - bottomH - margin;
+    const int32_t innerX = margin + 20;
+    const int32_t innerW = width - margin * 2 - 40;
+    const uint16_t bg = rgb(8, 12, 17);
+    const uint16_t accent = sites[currentSite].color;
+
+    drawPanel(margin, top, width - margin * 2, panelH, accent);
+    display.setFont(&fonts::Font4);
+    drawTextFit(encounterTitle[0] == '\0' ? "Encounter" : encounterTitle, innerX, top + 16, innerW, TFT_WHITE, bg);
+    display.setFont(&fonts::Font2);
+    drawWrappedText(encounterBody[0] == '\0' ? sites[currentSite].description : encounterBody, innerX, top + 56,
+                    innerW, 3, rgb(210, 222, 214), bg);
+
+    char pressure[220];
+    buildAreaPressureSynopsis(pressure, sizeof(pressure));
+    drawWrappedText(pressure, innerX, top + 126, innerW, 2, rgb(150, 168, 170), bg);
+    display.drawFastHLine(innerX, top + 178, innerW, rgb(55, 70, 70));
+
+    const int32_t cardTop = top + 198;
+    const int32_t cardGap = 10;
+    const int32_t cardW = (innerW - cardGap) / 2;
+    const int32_t cardH = (panelH - 228 - cardGap) / 2;
+    for (uint8_t i = 0; i < encounterChoiceCount; ++i) {
+        const RuntimeEncounterChoice& choice = encounterChoices[i];
+        const int32_t col = i % 2;
+        const int32_t row = i / 2;
+        const int32_t x = innerX + col * (cardW + cardGap);
+        const int32_t y = cardTop + row * (cardH + cardGap);
+        const uint16_t choiceAccent = choice.enabled ? (i == 0 ? rgb(90, 210, 220)
+                                                     : i == 1 ? rgb(230, 180, 70)
+                                                     : i == 2 ? rgb(170, 120, 240)
+                                                              : rgb(130, 230, 200))
+                                             : rgb(72, 76, 80);
+        const uint16_t cardBg = choice.enabled ? rgb(12, 18, 24) : rgb(14, 14, 16);
+
+        display.fillRoundRect(x, y, cardW, cardH, 6, cardBg);
+        display.drawRoundRect(x, y, cardW, cardH, 6, choiceAccent);
+        display.fillRect(x + 12, y + 12, 8, cardH - 24, choiceAccent);
+        display.setFont(&fonts::Font4);
+        drawTextFit(choice.label, x + 34, y + 10, cardW - 202, choice.enabled ? TFT_WHITE : rgb(110, 115, 120),
+                    cardBg);
+        display.setFont(&fonts::Font2);
+        drawWrappedText(choice.text, x + 34, y + 42, cardW - 68, 2,
+                        choice.enabled ? rgb(190, 208, 204) : rgb(110, 115, 120), cardBg);
+
+        char rules[180];
+        if (!choice.enabled && choice.requiredItem != kNoItemRequirement) {
+            snprintf(rules, sizeof(rules), "Needs %s.", itemCatalog[choice.requiredItem].name);
+        } else {
+            snprintf(rules, sizeof(rules), "Skill %+d  target %+d  dose %+d  attention %+d  time %+dh",
+                     choice.skillDelta, choice.targetDelta, choice.doseDelta, choice.attentionDelta,
+                     static_cast<int>(choice.timeDelta) * kTickHours);
+        }
+        drawTextFit(rules, x + 34, y + cardH - 28, cardW - 202,
+                    choice.enabled ? rgb(150, 168, 170) : rgb(110, 115, 120), cardBg);
+        addButton("Choose", x + cardW - 152, y + cardH - 52, 124, 38, UiAction::ChooseEncounter, i, choiceAccent,
+                  choice.enabled);
+    }
+
+    const int32_t buttonY = height - bottomH;
+    addButton("Field", margin, buttonY + 8, 150, 52, UiAction::BackToField, 0, rgb(90, 210, 220));
+    addButton("Kit", margin + 164, buttonY + 8, 140, 52, UiAction::Inventory, 0, rgb(170, 120, 240));
+    addButton("Map", margin + 318, buttonY + 8, 140, 52, UiAction::Map, 0, rgb(120, 220, 120));
 
     for (uint8_t i = 0; i < buttonCount; ++i) {
         drawButton(buttons[i]);
@@ -5261,6 +5624,9 @@ void drawCurrentScreen() {
         case Screen::ActionDetail:
             drawActionDetailScreen();
             break;
+        case Screen::Encounter:
+            drawEncounterScreen();
+            break;
         case Screen::Field:
             drawFieldScreen();
             break;
@@ -5285,6 +5651,9 @@ void initializeColors() {
 void initializeGame() {
     itemTextPage = 0;
     selectedActionDetail = UiAction::Observe;
+    pendingEncounterAction = UiAction::Explore;
+    activeEncounterChoice = -1;
+    clearEncounterChoices();
     selectedDawnOffer = -1;
     clearPinnedLead();
     warmBatterySpent = false;

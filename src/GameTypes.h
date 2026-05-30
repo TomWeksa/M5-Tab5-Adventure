@@ -14,6 +14,7 @@ enum class Screen : uint8_t {
     StoryDecision,
     Dialogue,
     ActionDetail,
+    Encounter,
 };
 
 // Slots describe broad item categories and also drive equipment placement.
@@ -73,6 +74,7 @@ enum class UiAction : uint8_t {
     Tracker,
     ChooseStory,
     OpenActionDetail,
+    ChooseEncounter,
     SelectDawnOffer,
     PinLead,
     ClearPinnedLead,
