@@ -1947,7 +1947,7 @@ void makeTextFit(const char* text, int32_t maxWidth, char* output, size_t output
     size_t len = strlen(output);
     while (len > 0) {
         output[--len] = '\0';
-        char candidate[160];
+        char candidate[384];
         snprintf(candidate, sizeof(candidate), "%s%s", output, suffix);
         if (display.textWidth(candidate) <= maxWidth) {
             snprintf(output, outputSize, "%s", candidate);
@@ -1960,7 +1960,7 @@ void makeTextFit(const char* text, int32_t maxWidth, char* output, size_t output
 
 // Draws a single line that is guaranteed not to overrun its allotted width.
 void drawTextFit(const char* text, int32_t x, int32_t y, int32_t maxWidth, uint16_t color, uint16_t background) {
-    char fitted[160];
+    char fitted[320];
     makeTextFit(text, maxWidth, fitted, sizeof(fitted));
     M5.Display.setTextDatum(textdatum_t::top_left);
     M5.Display.setTextColor(color, background);
@@ -1970,7 +1970,7 @@ void drawTextFit(const char* text, int32_t x, int32_t y, int32_t maxWidth, uint1
 // Formats and draws one fitted line, replacing raw printf calls in tight areas.
 void drawFormattedTextFit(int32_t x, int32_t y, int32_t maxWidth, uint16_t color, uint16_t background,
                           const char* format, ...) {
-    char buffer[160];
+    char buffer[320];
     va_list args;
     va_start(args, format);
     vsnprintf(buffer, sizeof(buffer), format, args);
@@ -2006,8 +2006,8 @@ void drawWrappedText(const char* text, int32_t x, int32_t y, int32_t w, uint8_t 
     display.setFont(&fonts::Font2);
     display.setTextColor(color, background);
 
-    char line[96] = "";
-    char word[32] = "";
+    char line[320] = "";
+    char word[96] = "";
     uint8_t wordLen = 0;
     uint8_t lineCount = 0;
     const int32_t lineHeight = 22;
@@ -2019,7 +2019,7 @@ void drawWrappedText(const char* text, int32_t x, int32_t y, int32_t w, uint8_t 
             return;
         }
 
-        char candidate[128];
+        char candidate[448];
         if (line[0] == '\0') {
             snprintf(candidate, sizeof(candidate), "%s", word);
         } else {
@@ -2041,6 +2041,17 @@ void drawWrappedText(const char* text, int32_t x, int32_t y, int32_t w, uint8_t 
     for (const char* cursor = text; *cursor != '\0' && lineCount < maxLines; ++cursor) {
         if (*cursor == ' ') {
             flushWord();
+        } else if (*cursor == '\n') {
+            flushWord();
+            if (line[0] != '\0' && lineCount < maxLines) {
+                drawTextFit(line, x, y + lineCount * lineHeight, w, color, background);
+                ++lineCount;
+                line[0] = '\0';
+            }
+        } else if (wordLen >= sizeof(word) - 1) {
+            flushWord();
+            word[wordLen++] = *cursor;
+            word[wordLen] = '\0';
         } else if (wordLen < sizeof(word) - 1) {
             word[wordLen++] = *cursor;
             word[wordLen] = '\0';
@@ -2060,8 +2071,8 @@ uint16_t renderPagedWrappedText(const char* text, int32_t x, int32_t y, int32_t 
     display.setFont(&fonts::Font2);
     display.setTextColor(color, background);
 
-    char line[160] = "";
-    char word[48] = "";
+    char line[320] = "";
+    char word[96] = "";
     uint8_t wordLen = 0;
     uint16_t lineIndex = 0;
     uint8_t drawn = 0;
@@ -2084,7 +2095,7 @@ uint16_t renderPagedWrappedText(const char* text, int32_t x, int32_t y, int32_t 
             return;
         }
 
-        char candidate[208];
+        char candidate[448];
         if (line[0] == '\0') {
             snprintf(candidate, sizeof(candidate), "%s", word);
         } else {
@@ -2108,6 +2119,10 @@ uint16_t renderPagedWrappedText(const char* text, int32_t x, int32_t y, int32_t 
         } else if (*cursor == '\n') {
             flushWord();
             flushLine();
+        } else if (wordLen >= sizeof(word) - 1) {
+            flushWord();
+            word[wordLen++] = *cursor;
+            word[wordLen] = '\0';
         } else if (wordLen < sizeof(word) - 1) {
             word[wordLen++] = *cursor;
             word[wordLen] = '\0';
