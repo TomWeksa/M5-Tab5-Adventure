@@ -9,9 +9,10 @@
 
 namespace {
 
-// Inventory has no intended gameplay limit for now. This large static backing
-// store simply avoids heap churn on the embedded target.
+// The carried pack has a gameplay limit, while the static backing store stays
+// larger so the embedded target avoids heap churn and expensive compaction.
 constexpr uint8_t kInventoryCapacity = 96;
+constexpr uint8_t kPackItemLimit = 20;
 constexpr uint8_t kEquipSlotCount = 5;
 constexpr uint8_t kSiteCapacity = 8;
 constexpr uint8_t kMaxButtons = 32;
@@ -137,6 +138,7 @@ bool tradeWantSelected[kTradeStockCount];
 uint8_t rewardItems[kMaxRewardItems];
 uint8_t rewardCount = 0;
 DawnOffer dawnOffers[3];
+bool packOverflowed = false;
 Button buttons[kMaxButtons];
 uint8_t buttonCount = 0;
 bool screenDirty = true;
@@ -188,6 +190,7 @@ const uint8_t tradeStock[kTradeStockCount] = {kBatteryCellItem,        kCleanWat
 
 int16_t dailyUpkeepValue();
 void setStatus(const char* text);
+bool packHasRoom();
 
 // Converts 8-bit RGB values to the display's 16-bit color format.
 uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
@@ -1310,6 +1313,9 @@ const char* actionBlockedText(UiAction action) {
     if (action == UiAction::FollowLead && siteLead[currentSite] == LeadKind::None) {
         return "no lead";
     }
+    if (action == UiAction::Explore && !packHasRoom()) {
+        return "pack full";
+    }
     if (action == UiAction::Explore && siteCache[currentSite] == 0) {
         return "dry";
     }
@@ -1459,7 +1465,7 @@ bool fieldActionAvailable(UiAction action) {
         return siteLead[currentSite] == LeadKind::None && siteIntel[currentSite] < kMaxSiteIntel;
     }
     if (action == UiAction::Explore) {
-        return siteCache[currentSite] > 0;
+        return siteCache[currentSite] > 0 && packHasRoom();
     }
     if (action == UiAction::FollowLead) {
         return siteLead[currentSite] != LeadKind::None;
@@ -1591,6 +1597,10 @@ uint8_t inventoryItemCount() {
     return count;
 }
 
+bool packHasRoom() {
+    return inventoryItemCount() < kPackItemLimit;
+}
+
 // Calculates the last inventory page for the current row count.
 uint8_t maxInventoryPage(uint8_t rowsPerPage) {
     const uint8_t rows = rowsPerPage == 0 ? 1 : rowsPerPage;
@@ -1616,9 +1626,14 @@ int16_t firstEmptyInventorySlot() {
     return -1;
 }
 
-// Adds an item to the pack. The design has no intentional pack-size limit; the
-// fixed backing store is only there because this target avoids dynamic memory.
+// Adds an item to the pack while enforcing the player-facing item-count limit.
+// The larger backing store remains an implementation detail for cheap storage.
 bool addItem(uint8_t itemId, char* message, size_t messageSize) {
+    if (!packHasRoom()) {
+        snprintf(message, messageSize, "Found %s, but the pack is full. Something useful stays behind.",
+                 itemCatalog[itemId].name);
+        return false;
+    }
     const int16_t slot = firstEmptyInventorySlot();
     if (slot < 0) {
         snprintf(message, messageSize, "Found %s, but the pack index is full in this build.", itemCatalog[itemId].name);
@@ -1632,6 +1647,7 @@ bool addItem(uint8_t itemId, char* message, size_t messageSize) {
 // Clears the last reward list before resolving a new action or trade.
 void clearReward() {
     rewardCount = 0;
+    packOverflowed = false;
     rewardTitle[0] = '\0';
     rewardSummary[0] = '\0';
     rewardChanged[0] = '\0';
@@ -1651,6 +1667,8 @@ bool grantRewardItem(uint8_t itemId) {
     const bool added = addItem(itemId, ignored, sizeof(ignored));
     if (added) {
         rememberRewardItem(itemId);
+    } else {
+        packOverflowed = true;
     }
     return added;
 }
@@ -2911,6 +2929,103 @@ void advanceStoryArcs(UiAction action, OutcomeLevel outcome, LeadKind lead, char
     advancePersonWhoNeverEntered(action, outcome, lead, message, messageSize);
 }
 
+const char* siteExploreEncounterText(uint8_t siteIndex, OutcomeLevel outcome) {
+    if (siteIndex == 1) {
+        return outcome == OutcomeLevel::Failure
+                   ? "A checkpoint lens catches your outline through hanging cables."
+                   : "A stall runner opens a shutter just wide enough for your hands and not your name.";
+    }
+    if (siteIndex == 2) {
+        return outcome == OutcomeLevel::Failure
+                   ? "Mall water lifts a slick of pharmacy labels and old blood around your boots."
+                   : "A drowned service counter coughs up stock that was never scanned out.";
+    }
+    if (siteIndex == 3) {
+        return outcome == OutcomeLevel::Failure
+                   ? "A dead cabinet begins broadcasting your breathing with a one-second delay."
+                   : "The antenna field clicks into a rhythm you can loot between heartbeats.";
+    }
+    if (siteIndex == 4) {
+        return outcome == OutcomeLevel::Failure
+                   ? "The reeds close behind you and leave your route looking unused."
+                   : "A strip of road appears under the reeds, dry as a held breath.";
+    }
+    return outcome == OutcomeLevel::Failure ? "The site refuses the shape of your plan."
+                                            : "The place yields something because you caught it looking away.";
+}
+
+const char* leadEncounterText(LeadKind lead, OutcomeLevel outcome) {
+    if (lead == LeadKind::Contact) {
+        return outcome == OutcomeLevel::Failure
+                   ? "The contact smiles at the wrong person behind you and the meeting curdles."
+                   : "The contact speaks in prices, routes, and omissions.";
+    }
+    if (lead == LeadKind::Cache) {
+        return outcome == OutcomeLevel::Failure
+                   ? "The cache is real, but the approach is watched and badly timed."
+                   : "The cache opens with the wet sigh of a thing tired of being hidden.";
+    }
+    if (lead == LeadKind::Anomaly) {
+        return outcome == OutcomeLevel::Failure
+                   ? "The wrong-light notices the probe and folds toward your teeth."
+                   : "The anomaly leaves a clean edge where the world forgot to be dangerous.";
+    }
+    if (lead == LeadKind::Door) {
+        return outcome == OutcomeLevel::Failure
+                   ? "The service door refuses quietly, then reports the attempt loudly."
+                   : "The service door gives up a corridor that smells of hot dust and old authority.";
+    }
+    if (lead == LeadKind::Trail) {
+        return outcome == OutcomeLevel::Failure
+                   ? "The trail doubles back through a place your map insists is not there."
+                   : "The footpath keeps to the cold ground and lets you borrow its luck.";
+    }
+    return "The lead has already gone thin in the rain.";
+}
+
+void applyFieldEncounterAndRepercussion(UiAction action, OutcomeLevel outcome, LeadKind lead, uint8_t actionSite,
+                                        char* message, size_t messageSize) {
+    if (actionSite == 0 || actionSite >= kSiteCount) {
+        return;
+    }
+
+    char encounter[190];
+    if (action == UiAction::Explore) {
+        snprintf(encounter, sizeof(encounter), "Encounter: %s", siteExploreEncounterText(actionSite, outcome));
+    } else if (action == UiAction::FollowLead) {
+        snprintf(encounter, sizeof(encounter), "Encounter: %s", leadEncounterText(lead, outcome));
+    } else {
+        snprintf(encounter, sizeof(encounter), "Encounter: You hold still until %s shows its working parts.",
+                 sites[actionSite].name);
+    }
+    appendAbilityNote(message, messageSize, encounter);
+
+    char impact[180];
+    snprintf(impact, sizeof(impact), "Impact: %s pressure is now attention %u/%u, cache %u/%u.",
+             sites[actionSite].name, siteAttention[actionSite], kMaxSiteAttention, siteCache[actionSite],
+             sites[actionSite].maxCache);
+    appendAbilityNote(rewardChanged, sizeof(rewardChanged), impact);
+
+    if (action == UiAction::Explore && siteAttention[actionSite] >= 5) {
+        if (siteCache[actionSite] > 0) {
+            --siteCache[actionSite];
+            snprintf(impact, sizeof(impact), "Repercussion: your noise brings scavengers in behind you; cache -1.");
+        } else {
+            siteIntel[actionSite] =
+                siteIntel[actionSite] > 0 ? static_cast<uint8_t>(siteIntel[actionSite] - 1) : 0;
+            snprintf(impact, sizeof(impact), "Repercussion: the hot site spoils one useful note.");
+        }
+        appendAbilityNote(message, messageSize, impact);
+        appendAbilityNote(rewardChanged, sizeof(rewardChanged), impact);
+    }
+
+    if (packOverflowed) {
+        const char* overflow = "Repercussion: the pack is full; at least one find is left in the rain.";
+        appendAbilityNote(message, messageSize, overflow);
+        appendAbilityNote(rewardChanged, sizeof(rewardChanged), overflow);
+    }
+}
+
 // Resolves observe, explore, and lead actions through one risk/reward pipeline.
 void resolveFieldAction(UiAction action) {
     if (!fieldActionAvailable(action)) {
@@ -3347,6 +3462,7 @@ void resolveFieldAction(UiAction action) {
              "Changed: %s at %s; time -%uh, exposure +%d, attention +%u.",
              outcomeName(outcome), site.name, static_cast<unsigned>(spentTicks * kTickHours), ambientDose,
              static_cast<unsigned>(attentionGain));
+    applyFieldEncounterAndRepercussion(action, outcome, lead, actionSite, message, sizeof(message));
     pendingStoryArc = StoryArc::Count;
     advanceStoryArcs(action, outcome, lead, message, sizeof(message));
     applyDawnOfferReward(action, outcome, lead, message, sizeof(message));
@@ -3515,6 +3631,11 @@ void completeTrade() {
     snprintf(rewardSummary, sizeof(rewardSummary), "You traded goods worth %d for goods worth %d. No one gives change.",
              offer, ask);
     snprintf(rewardChanged, sizeof(rewardChanged), "Changed: pack contents and available trade value were recalculated.");
+    if (packOverflowed) {
+        const char* overflow = "Repercussion: the pack is full; some trade goods stay on the blanket.";
+        appendAbilityNote(rewardSummary, sizeof(rewardSummary), overflow);
+        appendAbilityNote(rewardChanged, sizeof(rewardChanged), overflow);
+    }
     snprintf(rewardNext, sizeof(rewardNext), "Suggested next: inspect the new goods, then choose a route that uses them.");
     setStatus(rewardSummary);
     resetTradeSelections();
@@ -4740,9 +4861,9 @@ void drawInventoryScreen() {
     const uint8_t inventoryCount = inventoryItemCount();
     const uint8_t maxPage = maxInventoryPage(rowsPerPage);
     drawFormattedTextFit(listX + 18, top + 52, listW - 36, rgb(150, 168, 170), bg,
-                         "Tap an item to inspect it.  %u carried  page %u/%u",
-                         static_cast<unsigned>(inventoryCount), static_cast<unsigned>(inventoryPage + 1),
-                         static_cast<unsigned>(maxPage + 1));
+                         "Tap an item to inspect it.  pack %u/%u  page %u/%u",
+                         static_cast<unsigned>(inventoryCount), static_cast<unsigned>(kPackItemLimit),
+                         static_cast<unsigned>(inventoryPage + 1), static_cast<unsigned>(maxPage + 1));
 
     const uint8_t startRow = static_cast<uint8_t>(inventoryPage * rowsPerPage);
     uint8_t seen = 0;
